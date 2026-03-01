@@ -75,6 +75,19 @@
                   <input type="password" class="form-control" id="auth-password" placeholder="Shkruaj fjalëkalimin" />
                 </div>
 
+                <!-- Full name (vetëm për regjistrim) -->
+                <div class="mb-3">
+                  <label for="auth-fullname" class="form-label">Emër Mbiemër</label>
+                  <input type="text" class="form-control" id="auth-fullname" placeholder="p.sh. Eva Barjamaj (vetëm për regjistrim)" />
+                  <div class="small muted mt-1">Përdoret për aktivitetet (kush e bëri veprimin).</div>
+                </div>
+
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="remember-me" checked />
+                  <label class="form-check-label" for="remember-me">Me kujto</label>
+                  <div class="small muted mt-1">Nëse e çaktivizon, do të dalësh automatikisht kur të mbyllet tab/telefoni.</div>
+                </div>
+
                 <div class="d-flex gap-2">
                   <button id="login-btn" class="btn btn-primary w-50">Hyr</button>
                   <button id="signup-btn" class="btn btn-outline-primary w-50">Regjistrohu</button>
@@ -84,6 +97,7 @@
                   Nëse butonat nuk punojnë: kontrollo Console (F12) dhe sigurohu që ke vendosur saktë
                   <span class="mono">SUPABASE_URL</span> (fillon me https://) dhe <span class="mono">SUPABASE_ANON_KEY</span>.
                 </div>
+
               </div>
             </div>
           </div>
@@ -204,7 +218,7 @@
                   </div>
 
                   <div class="small muted mt-1">
-                    Shënim: “Pastro automatikisht” funksionon vetëm në PC ku është ndezur <b>Local Processor</b>.
+                    Shënim: Pastrimi i pikave është <b>online</b> dhe funksionon automatikisht te “Pika (RAW)”.
                   </div>
 
                   <div class="accordion mt-3" id="sectionsAccordion">
