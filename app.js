@@ -1,16 +1,15 @@
 /**
- * Databaza New Vision Project - v3
- * - Workspace me seksione
- * - Multi-upload
- * - Status/Date/Comment për DWG Finale & Dorëzime
- * - Auto-clean opsional me Serveri i pastrimit (online) (online)
+ * Databaza New Vision Project - FIXED
+ * - Anti-freeze / session refresh
+ * - Download direkt (jo tab) për txt/imahe/dwg
+ * - Activity me emra (profiles.full_name)
+ * - Remember me (nëse çaktivizohet → logout kur mbyllet tab/telefoni)
  */
 
 const SUPABASE_URL = "https://isakjtxcjpifuvhzpltq.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlzYWtqdHhjanBpZnV2aHpwbHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MDA0ODQsImV4cCI6MjA4NzE3NjQ4NH0.3W1pM35dIZxsTnBpdXdiRYMBaFO4sV1oU8UnDBbNfsc";
-
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlzYWtqdHhjanBpZnV2aHpwbHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MDA0ODQsImV4cCI6MjA4NzE3NjQ4NH0.3W1pM35dIZxsTnBpdXdiRYMBaFO4sV1oU8UnDBbNfsc"; // e le siç e ke në GitHub, mos e harro
 const BUCKET = "skica";
-const PROCESSOR_BASE = "https://pastrimi-pikave-yllarti.onrender.com"; // Ndrysho nëse ndryshon URL e Render
+const PROCESSOR_BASE = "https://pastrimi-pikave-yllarti.onrender.com";
 
 const SECTION_LABELS = {
   raw_points: "01 - Pika (RAW)",
@@ -43,14 +42,37 @@ function rand6() {
   return Math.random().toString(36).slice(2, 8);
 }
 
-const sup = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: window.sessionStorage,
-    storageKey: "nvp-auth",
-  },
+/**
+ * ✅ Stabilitet maksimal:
+ * - përdorim localStorage për token (shmang “lock”/freeze)
+ * - “Me kujto” kontrollohet me një flag:
+ *   nëse OFF → do bëjmë signOut në beforeunload (si session-only)
+ */
+function makeSupabaseClient() {
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storage: window.localStorage,
+    },
+  });
+}
+
+let sup = makeSupabaseClient();
+sup.auth.startAutoRefresh();
+
+// Anti-freeze: nxit refresh çdo 60s (sidomos mobile)
+setInterval(async () => {
+  try { await sup.auth.getSession(); } catch {}
+}, 60000);
+
+// Kur rikthehesh në tab/telefon, rifresko
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible") {
+    try { await sup.auth.getSession(); } catch {}
+    try { await hardRefresh(); } catch {}
+  }
 });
 
 // UI refs
@@ -87,8 +109,6 @@ const refreshFilesBtn = document.getElementById("refresh-files-btn");
 const refreshActivityBtn = document.getElementById("refresh-activity-btn");
 const activityList = document.getElementById("activity-list");
 
-const autoCleanToggle = document.getElementById("auto-clean-toggle");
-
 // Upload modal
 const uploadModalEl = document.getElementById("uploadModal");
 const uploadForm = document.getElementById("upload-form");
@@ -105,6 +125,8 @@ const deliverableFileName = document.getElementById("deliverable-file-name");
 const deliverableStatus = document.getElementById("deliverable-status");
 const deliverableDate = document.getElementById("deliverable-date");
 const deliverableComment = document.getElementById("deliverable-comment");
+
+const rememberMeEl = document.getElementById("remember-me");
 
 // State
 let categories = [];
@@ -207,20 +229,57 @@ async function logActivity(projectId, action, target = null) {
   }
 }
 
+// ✅ Shkarkim direkt (jo tab) – punon për txt/imahe/dwg
+async function shkarkoNgaStorage(filePath) {
+  const fileName = (filePath || "").split("/").pop() || "skedar";
+
+  const { data, error } = await sup.storage.from(BUCKET).download(filePath);
+  if (error) throw error;
+
+  const blobUrl = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(blobUrl);
+}
+
 // Auth
 async function handleSignUp(e) {
   e.preventDefault();
   const email = document.getElementById("auth-email").value.trim();
   const password = document.getElementById("auth-password").value;
+  const fullName = document.getElementById("auth-fullname").value.trim();
 
   if (!email || !password) return showAlert("Plotëso email dhe fjalëkalimin.", "warning");
+  if (!fullName) return showAlert("Plotëso Emër Mbiemër (për regjistrim).", "warning");
 
   try {
-    const { error } = await sup.auth.signUp({ email, password });
+    const { data, error } = await sup.auth.signUp({ email, password });
     if (error) throw error;
+
+    // ruaj full_name në profiles (upsert)
+    const userId = data?.user?.id;
+    if (userId) {
+      const { error: pErr } = await sup.from("profiles").upsert({ id: userId, full_name: fullName });
+      if (pErr) console.warn("profiles upsert:", pErr);
+    }
+
     showAlert("Regjistrimi u krye. Tani mund të hysh me email/fjalëkalim.", "success", 7000);
   } catch (err) {
     showAlert(`Gabim në regjistrim: ${err.message}`, "danger", 9000);
+  }
+}
+
+function applyRememberPolicy() {
+  const remember = rememberMeEl?.checked ?? true;
+  // Nëse nuk do “Me kujto”, bëjmë signOut kur mbyllet tab/telefoni
+  if (!remember) {
+    window.addEventListener("beforeunload", () => {
+      try { sup.auth.signOut(); } catch {}
+    });
   }
 }
 
@@ -232,8 +291,11 @@ async function handleLogin(e) {
   if (!email || !password) return showAlert("Plotëso email dhe fjalëkalimin.", "warning");
 
   try {
+    applyRememberPolicy();
+
     const { error } = await sup.auth.signInWithPassword({ email, password });
     if (error) throw error;
+
     showAlert("U futët me sukses.", "success", 2500);
   } catch (err) {
     showAlert(`Gabim në hyrje: ${err.message}`, "danger", 9000);
@@ -245,7 +307,6 @@ async function handleLogout(e) {
   try {
     const { error } = await sup.auth.signOut();
     if (error) throw error;
-    try { sessionStorage.removeItem("nvp-auth"); } catch {}
     showAlert("Dole nga sistemi.", "info", 2500);
   } catch (err) {
     showAlert(`Gabim në dalje: ${err.message}`, "danger", 9000);
@@ -514,9 +575,7 @@ function renderFileRow(section, f) {
   btnDl.textContent = "Shkarko";
   btnDl.addEventListener("click", async () => {
     try {
-      const { data: signed, error: sErr } = await sup.storage.from(BUCKET).createSignedUrl(f.file_path, 120);
-      if (sErr) throw sErr;
-      window.open(signed.signedUrl, "_blank");
+      await shkarkoNgaStorage(f.file_path);
     } catch (e) {
       showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000);
       console.error(e);
@@ -537,13 +596,13 @@ function renderFileRow(section, f) {
   return li;
 }
 
-// Activity
+// Activity (me emra)
 async function loadProjectActivity(projectId) {
   activityList.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
 
   const { data, error } = await sup
     .from("activity_log")
-    .select("id,action,target,timestamp")
+    .select("id,action,target,timestamp,user_id, profiles(full_name)")
     .eq("project_id", projectId)
     .order("timestamp", { ascending: false })
     .limit(15);
@@ -562,8 +621,12 @@ async function loadProjectActivity(projectId) {
   data.forEach((a) => {
     const li = document.createElement("li");
     li.className = "list-group-item";
+
+    const prof = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
+    const emri = prof?.full_name || "Përdorues";
+
     li.innerHTML = `<div class="fw-semibold">${escapeHtml(a.action || "veprim")}</div>
-                    <div class="small text-muted">${escapeHtml(a.target || "")} • ${fmtDate(a.timestamp)}</div>`;
+                    <div class="small text-muted">${escapeHtml(emri)} • ${escapeHtml(a.target || "")} • ${fmtDate(a.timestamp)}</div>`;
     activityList.appendChild(li);
   });
 }
@@ -584,7 +647,7 @@ uploadModalEl.addEventListener("show.bs.modal", (evt) => {
   uploadFilesInput.value = "";
 });
 
-async function tryLocalProcessorHealth() {
+async function tryProcessorHealth() {
   try {
     const r = await fetch(`${PROCESSOR_BASE}/health`, { method: "GET" });
     return r.ok;
@@ -593,7 +656,7 @@ async function tryLocalProcessorHealth() {
   }
 }
 
-async function processWithLocalProcessor(file) {
+async function processWithProcessor(file) {
   const fd = new FormData();
   fd.append("file", file, file.name);
 
@@ -601,7 +664,7 @@ async function processWithLocalProcessor(file) {
 
   if (!resp.ok) {
     const t = await resp.text().catch(() => "");
-    throw new Error(`Serveri i pastrimit (online) error (${resp.status}): ${t || "n/a"}`);
+    throw new Error(`Serveri i pastrimit error (${resp.status}): ${t || "n/a"}`);
   }
 
   return await resp.blob();
@@ -630,7 +693,6 @@ async function uploadOne(projectId, section, file) {
     uploaded_at: new Date().toISOString(),
   };
 
-  // default deliverable status for deliverable sections
   if (DELIVERABLE_SECTIONS.has(section)) {
     baseRow.deliverable_status = "ne_pritje";
     baseRow.delivered_at = null;
@@ -654,18 +716,17 @@ async function handleUpload(e) {
   if (!files.length) return showAlert("Zgjidh të paktën një skedar.", "warning");
 
   const canAutoClean = section === "raw_points";
-  const autoClean = canAutoClean; // gjithmone automatik per Pika RAW
+  const autoClean = canAutoClean; // gjithmone automatik te RAW
 
-  let localOk = false;
+  let processorOk = false;
   if (canAutoClean) {
-    localOk = await tryLocalProcessorHealth();
-    if (!localOk) {
-      showAlert("Serveri i pastrimit (online) nuk u gjet (online). RAW do të ngarkohet normalisht, pa pastrim automatik.", "warning", 8000);
+    processorOk = await tryProcessorHealth();
+    if (!processorOk) {
+      showAlert("Serveri i pastrimit nuk u gjet. RAW do të ngarkohet normalisht, pa pastrim automatik.", "warning", 8000);
     }
   }
 
   showAlert(`Po ngarkohen ${files.length} skedar(ë)...`, "info", 2500);
-  console.log("Uploading files:", { projectId, section, files });
 
   let ok = 0, fail = 0;
 
@@ -676,9 +737,9 @@ async function handleUpload(e) {
 
       await logActivity(projectId, `u ngarkua ${f.name}`, `storage/${BUCKET}/${section}`);
 
-      if (localOk && ["csv", "idx"].includes(extOf(f.name))) {
+      if (autoClean && processorOk && ["csv", "idx"].includes(extOf(f.name))) {
         try {
-          const cleanedBlob = await processWithLocalProcessor(f);
+          const cleanedBlob = await processWithProcessor(f);
           const cleanedName = f.name.replace(/\.(csv|idx)$/i, "") + "_clean.txt";
           const cleanedFile = new File([cleanedBlob], cleanedName, { type: "text/plain" });
 
@@ -706,6 +767,7 @@ async function handleUpload(e) {
 
   await loadAllFilesForProject(projectId);
   await loadKPIs();
+  if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
 }
 
 uploadForm.addEventListener("submit", handleUpload);
@@ -714,7 +776,6 @@ uploadForm.addEventListener("submit", handleUpload);
 function toDatetimeLocalValue(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  // YYYY-MM-DDTHH:MM
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -741,11 +802,7 @@ deliverableForm.addEventListener("submit", async (e) => {
 
   let deliveredAt = null;
   if (st === "dorezuar") {
-    if (deliverableDate.value) {
-      deliveredAt = new Date(deliverableDate.value).toISOString();
-    } else {
-      deliveredAt = new Date().toISOString();
-    }
+    deliveredAt = deliverableDate.value ? new Date(deliverableDate.value).toISOString() : new Date().toISOString();
   }
 
   try {
@@ -778,7 +835,7 @@ deliverableForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Refresh all
+// Refresh all (me lock)
 async function hardRefresh() {
   if (isRefreshing) return;
   isRefreshing = true;
