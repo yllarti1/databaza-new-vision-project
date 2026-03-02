@@ -1,11 +1,11 @@
 /**
- * Databaza New Vision Project - STABLE
- * - Anti-freeze + session keepalive
- * - Safe refresh (nuk ngec në "Duke ngarkuar..." nëse 1 query dështon)
+ * New Vision Project - FINAL (Vercel + Supabase)
+ * - Safe refresh: s'ngel ne "Duke ngarkuar..."
+ * - Anti-freeze: keepalive + visibility refresh
  * - Download direkt (jo tab)
  * - Activity me emra (profiles.full_name)
- * - Remember me
- * - Full Name ruhet vetëm 1 herë (s’ndryshohet pas regjistrimit)
+ * - Remember me (OFF => signOut ne close)
+ * - Full Name ruhet 1 here (nuk ndryshohet pas regjistrimit)
  */
 
 const SUPABASE_URL = "https://isakjtxcjpifuvhzpltq.supabase.co";
@@ -27,8 +27,9 @@ const SECTION_LABELS = {
 
 const DELIVERABLE_SECTIONS = new Set(["dwg_final", "dorezime"]);
 
+// ---------- small utils ----------
 function extOf(name) {
-  const i = name.lastIndexOf(".");
+  const i = String(name || "").lastIndexOf(".");
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
 }
 function fileTypeFromExt(ext) {
@@ -43,8 +44,33 @@ function fileTypeFromExt(ext) {
 function rand6() {
   return Math.random().toString(36).slice(2, 8);
 }
+function escapeHtml(str) {
+  return String(str || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("sq-AL", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+function toDatetimeLocalValue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
-// Remember me
+// ---------- Remember me ----------
 const REMEMBER_KEY = "nvp-remember-me";
 function getRememberMe() {
   const v = localStorage.getItem(REMEMBER_KEY);
@@ -54,8 +80,11 @@ function setRememberMe(v) {
   localStorage.setItem(REMEMBER_KEY, v ? "1" : "0");
 }
 
-// Supabase client
+// ---------- Supabase client ----------
 function makeSupabaseClient() {
+  if (!window.supabase?.createClient) {
+    throw new Error("Supabase library nuk u ngarkua. Kontrollo script supabase-js@2.");
+  }
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
       persistSession: true,
@@ -65,29 +94,17 @@ function makeSupabaseClient() {
     },
   });
 }
-let sup = makeSupabaseClient();
-sup.auth.startAutoRefresh();
 
-// Keepalive (anti-freeze)
-setInterval(async () => {
-  try {
-    const { data, error } = await sup.auth.getSession();
-    if (error) console.warn("getSession error:", error);
-    if (!data?.session) console.warn("No session detected (keepalive).");
-  } catch (e) {
-    console.warn("keepalive failed:", e);
-  }
-}, 45000);
+let sup;
+try {
+  sup = makeSupabaseClient();
+  sup.auth.startAutoRefresh();
+} catch (e) {
+  console.error(e);
+  alert("Gabim: Supabase nuk u inicializua. Kontrollo console.");
+}
 
-// Tab visibility refresh
-document.addEventListener("visibilitychange", async () => {
-  if (document.visibilityState === "visible") {
-    try { await sup.auth.getSession(); } catch {}
-    try { await hardRefresh(); } catch {}
-  }
-});
-
-// UI refs
+// ---------- UI refs ----------
 const alertArea = document.getElementById("alert-area");
 const authSection = document.getElementById("auth-section");
 const appSection = document.getElementById("app-section");
@@ -109,6 +126,7 @@ const kpiProjects = document.getElementById("kpi-projects");
 const kpiFiles = document.getElementById("kpi-files");
 const kpiActivity = document.getElementById("kpi-activity");
 
+// Panel
 const panelHint = document.getElementById("panel-hint");
 const panelProjectId = document.getElementById("panel-project-id");
 const panelContent = document.getElementById("panel-content");
@@ -120,6 +138,7 @@ const refreshFilesBtn = document.getElementById("refresh-files-btn");
 const refreshActivityBtn = document.getElementById("refresh-activity-btn");
 const activityList = document.getElementById("activity-list");
 
+// Upload modal
 const uploadModalEl = document.getElementById("uploadModal");
 const uploadForm = document.getElementById("upload-form");
 const uploadProjectIdInput = document.getElementById("upload-project-id");
@@ -127,6 +146,7 @@ const uploadSectionInput = document.getElementById("upload-section");
 const uploadSectionLabel = document.getElementById("upload-section-label");
 const uploadFilesInput = document.getElementById("upload-files");
 
+// Deliverable modal
 const deliverableModalEl = document.getElementById("deliverableModal");
 const deliverableForm = document.getElementById("deliverable-form");
 const deliverableFileId = document.getElementById("deliverable-file-id");
@@ -136,11 +156,13 @@ const deliverableDate = document.getElementById("deliverable-date");
 const deliverableComment = document.getElementById("deliverable-comment");
 
 const rememberMeEl = document.getElementById("remember-me");
+
+// Auth inputs
 const authFullnameEl = document.getElementById("auth-fullname");
 const authEmailEl = document.getElementById("auth-email");
 const authPassEl = document.getElementById("auth-password");
 
-// State
+// ---------- state ----------
 let categories = [];
 let categoryMap = {};
 let allProjects = [];
@@ -148,7 +170,8 @@ let selectedProject = null;
 let isRefreshing = false;
 let fileIndexById = {};
 
-function showAlert(message, type = "info", timeout = 6000) {
+function showAlert(message, type = "info", timeout = 7000) {
+  if (!alertArea) return;
   const wrapper = document.createElement("div");
   wrapper.innerHTML = `
     <div class="alert alert-${type} alert-dismissible fade show" role="alert">
@@ -170,18 +193,6 @@ function showAlert(message, type = "info", timeout = 6000) {
   }
 }
 
-function fmtDate(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString("sq-AL", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function cleanupBackdrops() {
   try {
     document.querySelectorAll(".modal-backdrop").forEach((b) => b?.remove?.());
@@ -194,15 +205,15 @@ function cleanupBackdrops() {
 
 function clearPanel() {
   selectedProject = null;
-  panelHint.textContent = "Zgjidh një projekt nga lista.";
-  panelProjectId.textContent = "—";
-  panelContent.classList.add("hidden");
+  if (panelHint) panelHint.textContent = "Zgjidh një projekt nga lista.";
+  if (panelProjectId) panelProjectId.textContent = "—";
+  if (panelContent) panelContent.classList.add("hidden");
 
   Object.keys(SECTION_LABELS).forEach((sec) => {
     const ul = document.getElementById(`list-${sec}`);
     if (ul) ul.innerHTML = "";
   });
-  activityList.innerHTML = "";
+  if (activityList) activityList.innerHTML = "";
 }
 
 function buildCategoryMap() {
@@ -210,35 +221,39 @@ function buildCategoryMap() {
   (categories || []).forEach((c) => (categoryMap[String(c.id)] = c.name || `Kategori ${c.id}`));
 }
 
-// profile name
+// ---------- profile name ----------
 async function getMyProfileName() {
-  const { data: userData } = await sup.auth.getUser();
-  const user = userData?.user;
-  if (!user?.id) return null;
+  try {
+    const { data: userData } = await sup.auth.getUser();
+    const user = userData?.user;
+    if (!user?.id) return null;
 
-  const { data, error } = await sup.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
-  if (error) return null;
+    const { data, error } = await sup.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+    if (error) return null;
 
-  const nm = (data?.full_name || "").trim();
-  return nm || null;
+    const nm = (data?.full_name || "").trim();
+    return nm || null;
+  } catch {
+    return null;
+  }
 }
 
 async function setAppVisible(isLoggedIn, session) {
   if (isLoggedIn) {
-    authSection.classList.add("hidden");
-    appSection.classList.remove("hidden");
+    authSection?.classList.add("hidden");
+    appSection?.classList.remove("hidden");
 
-    let display = null;
-    try { display = await getMyProfileName(); } catch {}
-    userEmailTop.textContent = display || session?.user?.email || "—";
+    const display = await getMyProfileName();
+    if (userEmailTop) userEmailTop.textContent = display || session?.user?.email || "—";
   } else {
-    authSection.classList.remove("hidden");
-    appSection.classList.add("hidden");
-    userEmailTop.textContent = "—";
+    authSection?.classList.remove("hidden");
+    appSection?.classList.add("hidden");
+    if (userEmailTop) userEmailTop.textContent = "—";
     clearPanel();
   }
 }
 
+// ---------- activity ----------
 async function logActivity(projectId, action, target = null) {
   try {
     const { data: userData } = await sup.auth.getUser();
@@ -257,7 +272,7 @@ async function logActivity(projectId, action, target = null) {
   }
 }
 
-// download direct
+// ---------- download ----------
 async function shkarkoNgaStorage(filePath) {
   const fileName = (filePath || "").split("/").pop() || "skedar";
   const { data, error } = await sup.storage.from(BUCKET).download(filePath);
@@ -273,7 +288,7 @@ async function shkarkoNgaStorage(filePath) {
   URL.revokeObjectURL(blobUrl);
 }
 
-// remember policy
+// ---------- remember policy ----------
 function applyRememberPolicy() {
   const remember = rememberMeEl?.checked ?? true;
   setRememberMe(remember);
@@ -285,7 +300,7 @@ function applyRememberPolicy() {
   }
 }
 
-// SIGN UP (name locked)
+// ---------- AUTH ----------
 async function handleSignUp(e) {
   e.preventDefault();
 
@@ -304,8 +319,10 @@ async function handleSignUp(e) {
 
     const userId = data?.user?.id;
     if (userId) {
+      // NAME LOCK: ruaje vetëm nëse është bosh
       const { data: prof } = await sup.from("profiles").select("full_name").eq("id", userId).maybeSingle();
       const existing = (prof?.full_name || "").trim();
+
       if (!existing) {
         const { error: pErr } = await sup.from("profiles").upsert({ id: userId, full_name: fullName });
         if (pErr) console.warn("profiles upsert:", pErr);
@@ -315,12 +332,13 @@ async function handleSignUp(e) {
     showAlert("Regjistrimi u krye. Tani mund të hysh me email/fjalëkalim.", "success", 7000);
     if (authFullnameEl) authFullnameEl.value = "";
   } catch (err) {
-    showAlert(`Gabim në regjistrim: ${err.message}`, "danger", 9000);
+    showAlert(`Gabim në regjistrim: ${escapeHtml(err.message)}`, "danger", 9000);
   }
 }
 
 async function handleLogin(e) {
   e.preventDefault();
+
   const email = (authEmailEl?.value || "").trim();
   const password = authPassEl?.value || "";
 
@@ -330,9 +348,10 @@ async function handleLogin(e) {
     applyRememberPolicy();
     const { error } = await sup.auth.signInWithPassword({ email, password });
     if (error) throw error;
+
     showAlert("U futët me sukses.", "success", 2500);
   } catch (err) {
-    showAlert(`Gabim në hyrje: ${err.message}`, "danger", 9000);
+    showAlert(`Gabim në hyrje: ${escapeHtml(err.message)}`, "danger", 9000);
   }
 }
 
@@ -343,59 +362,65 @@ async function handleLogout(e) {
     if (error) throw error;
     showAlert("Dole nga sistemi.", "info", 2500);
   } catch (err) {
-    showAlert(`Gabim në dalje: ${err.message}`, "danger", 9000);
+    showAlert(`Gabim në dalje: ${escapeHtml(err.message)}`, "danger", 9000);
   }
 }
 
-// DATA
+// ---------- DATA ----------
 async function loadCategories() {
   try {
-    const { data, error } = await sup.from("project_categories").select("id,name").order("id", { ascending: true });
+    const { data, error } = await sup
+      .from("project_categories")
+      .select("id,name")
+      .order("id", { ascending: true });
+
     if (error) throw error;
 
     categories = data || [];
     buildCategoryMap();
 
-    // project modal select
-    projectCategorySelect.innerHTML = "";
-    if (!categories.length) {
-      projectCategorySelect.innerHTML = `<option value="">Nuk ka kategori</option>`;
-    } else {
+    // fill project modal select
+    if (projectCategorySelect) {
+      projectCategorySelect.innerHTML = "";
+      if (!categories.length) {
+        projectCategorySelect.innerHTML = `<option value="">Nuk ka kategori</option>`;
+      } else {
+        categories.forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = String(c.id);
+          opt.textContent = c.name;
+          projectCategorySelect.appendChild(opt);
+        });
+      }
+    }
+
+    // fill filter
+    if (filterCategory) {
+      const current = filterCategory.value || "";
+      filterCategory.innerHTML = `<option value="">Të gjitha kategoritë</option>`;
       categories.forEach((c) => {
         const opt = document.createElement("option");
         opt.value = String(c.id);
         opt.textContent = c.name;
-        projectCategorySelect.appendChild(opt);
+        filterCategory.appendChild(opt);
       });
+      filterCategory.value = current;
     }
-
-    // filter select
-    const current = filterCategory.value || "";
-    filterCategory.innerHTML = `<option value="">Të gjitha kategoritë</option>`;
-    categories.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = String(c.id);
-      opt.textContent = c.name;
-      filterCategory.appendChild(opt);
-    });
-    filterCategory.value = current;
-
   } catch (e) {
     console.error("loadCategories failed:", e);
 
-    // mos e lër UI në "Duke ngarkuar..."
-    projectCategorySelect.innerHTML = `<option value="">(Gabim kategori)</option>`;
-    filterCategory.innerHTML = `<option value="">(Gabim kategori)</option>`;
+    // mos e ler UI ne loading
+    if (projectCategorySelect) projectCategorySelect.innerHTML = `<option value="">(Gabim kategori)</option>`;
+    if (filterCategory) filterCategory.innerHTML = `<option value="">(Gabim kategori)</option>`;
+
+    categories = [];
+    buildCategoryMap();
 
     showAlert(
-      `Kategoritë nuk u ngarkuan. Shkak tipik: RLS/Permissions te tabela <b>project_categories</b>.<br/>Detaj: ${e.message}`,
+      `Kategoritë nuk u ngarkuan. Shkak tipik: RLS/permissions te tabela <b>project_categories</b>.<br/>Detaj: ${escapeHtml(e.message)}`,
       "warning",
       12000
     );
-
-    // rëndësi: mos e "throw" që app të vazhdojë me projektet/materialet
-    categories = [];
-    buildCategoryMap();
   }
 }
 
@@ -411,20 +436,22 @@ async function loadProjects() {
 }
 
 async function loadKPIs() {
-  kpiProjects.textContent = String(allProjects.length);
+  if (kpiProjects) kpiProjects.textContent = String(allProjects.length);
 
   const { count: filesCount } = await sup.from("skicat").select("*", { count: "exact", head: true });
-  if (typeof filesCount === "number") kpiFiles.textContent = String(filesCount);
+  if (typeof filesCount === "number" && kpiFiles) kpiFiles.textContent = String(filesCount);
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { count: actCount } = await sup.from("activity_log").select("*", { count: "exact", head: true }).gte("timestamp", since);
-  if (typeof actCount === "number") kpiActivity.textContent = String(actCount);
+  if (typeof actCount === "number" && kpiActivity) kpiActivity.textContent = String(actCount);
 }
 
-// Projects table
+// ---------- render projects ----------
 function renderProjectsTable() {
-  const q = (searchInput.value || "").toLowerCase().trim();
-  const cat = filterCategory.value || "";
+  if (!projectsTableBody) return;
+
+  const q = (searchInput?.value || "").toLowerCase().trim();
+  const cat = filterCategory?.value || "";
 
   let filtered = [...allProjects];
   if (cat) filtered = filtered.filter((p) => String(p.category_id) === String(cat));
@@ -474,14 +501,17 @@ function renderProjectsTable() {
   });
 }
 
-// Create project
+// ---------- create project ----------
 async function handleCreateProject(e) {
   e.preventDefault();
-  const name = document.getElementById("project-name").value.trim();
-  const categoryId = projectCategorySelect.value;
-  const location = document.getElementById("project-location").value.trim();
 
-  if (!name || !categoryId) return showAlert("Plotëso fushat e detyrueshme (Emri + Kategoria).", "warning", 6000);
+  const name = document.getElementById("project-name")?.value?.trim() || "";
+  const categoryId = projectCategorySelect?.value || "";
+  const location = document.getElementById("project-location")?.value?.trim() || "";
+
+  if (!name || !categoryId) {
+    return showAlert("Plotëso fushat e detyrueshme (Emri + Kategoria).", "warning", 6000);
+  }
 
   try {
     const { data: userData } = await sup.auth.getUser();
@@ -499,41 +529,33 @@ async function handleCreateProject(e) {
     if (error) throw error;
 
     const projectId = data?.[0]?.id;
-    await logActivity(projectId, "u krijua puna", "projects");
+    if (projectId) await logActivity(projectId, "u krijua puna", "projects");
 
     showAlert("Puna u krijua me sukses.", "success", 3000);
 
     bootstrap.Modal.getInstance(document.getElementById("projectModal"))?.hide();
     cleanupBackdrops();
-    projectForm.reset();
+    projectForm?.reset();
+
     await hardRefresh();
   } catch (err) {
-    showAlert(`Gabim gjatë krijimit: ${err.message}`, "danger", 9000);
+    showAlert(`Gabim gjatë krijimit: ${escapeHtml(err.message)}`, "danger", 9000);
   }
 }
 
-// Workspace
+// ---------- workspace ----------
 async function setPanel(project) {
   selectedProject = project;
-  panelHint.textContent = "Workspace i projektit është aktiv.";
-  panelProjectId.textContent = project.id;
-  panelContent.classList.remove("hidden");
+  if (panelHint) panelHint.textContent = "Workspace i projektit është aktiv.";
+  if (panelProjectId) panelProjectId.textContent = project.id;
+  panelContent?.classList.remove("hidden");
 
-  panelProjectName.textContent = project.name || "Pa emër";
-  panelProjectCategory.textContent = categoryMap[String(project.category_id)] || `ID ${project.category_id || "—"}`;
-  panelProjectLocation.textContent = project.location || "—";
+  if (panelProjectName) panelProjectName.textContent = project.name || "Pa emër";
+  if (panelProjectCategory) panelProjectCategory.textContent = categoryMap[String(project.category_id)] || `ID ${project.category_id || "—"}`;
+  if (panelProjectLocation) panelProjectLocation.textContent = project.location || "—";
 
   await loadAllFilesForProject(project.id);
   await loadProjectActivity(project.id);
-}
-
-function escapeHtml(str) {
-  return String(str || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function statusChip(status, deliveredAt) {
@@ -543,9 +565,10 @@ function statusChip(status, deliveredAt) {
   return `<span class="chip warn">Në pritje</span>`;
 }
 
-// Files list
+// ---------- files ----------
 async function loadAllFilesForProject(projectId) {
   fileIndexById = {};
+
   Object.keys(SECTION_LABELS).forEach((sec) => {
     const ul = document.getElementById(`list-${sec}`);
     if (ul) ul.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
@@ -558,10 +581,10 @@ async function loadAllFilesForProject(projectId) {
     .order("uploaded_at", { ascending: false });
 
   if (error) {
-    showAlert(`Gabim në ngarkimin e materialeve: ${error.message}`, "danger", 9000);
+    showAlert(`Gabim në ngarkimin e materialeve: ${escapeHtml(error.message)}`, "danger", 9000);
     Object.keys(SECTION_LABELS).forEach((sec) => {
       const ul = document.getElementById(`list-${sec}`);
-      if (ul) ul.innerHTML = `<li class="list-group-item text-danger">Gabim: ${error.message}</li>`;
+      if (ul) ul.innerHTML = `<li class="list-group-item text-danger">Gabim: ${escapeHtml(error.message)}</li>`;
     });
     return;
   }
@@ -605,7 +628,7 @@ function renderFileRow(section, f) {
 
   left.innerHTML = `
     <div class="file-name">${escapeHtml(filename)}</div>
-    <div class="small text-muted">${escapeHtml(f.file_type || "file")} • ${fmtDate(f.uploaded_at)}</div>
+    <div class="small text-muted">${escapeHtml(f.file_type || "file")} • ${escapeHtml(fmtDate(f.uploaded_at))}</div>
     ${extra}
   `;
 
@@ -616,8 +639,11 @@ function renderFileRow(section, f) {
   btnDl.className = "btn btn-sm btn-outline-success";
   btnDl.textContent = "Shkarko";
   btnDl.addEventListener("click", async () => {
-    try { await shkarkoNgaStorage(f.file_path); }
-    catch (e) { showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000); }
+    try {
+      await shkarkoNgaStorage(f.file_path);
+    } catch (e) {
+      showAlert(`Gabim në shkarkim: ${escapeHtml(e.message)}`, "danger", 8000);
+    }
   });
   right.appendChild(btnDl);
 
@@ -634,8 +660,9 @@ function renderFileRow(section, f) {
   return li;
 }
 
-// Activity (me emra)
+// ---------- activity ----------
 async function loadProjectActivity(projectId) {
+  if (!activityList) return;
   activityList.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
 
   const { data, error } = await sup
@@ -646,7 +673,7 @@ async function loadProjectActivity(projectId) {
     .limit(15);
 
   if (error) {
-    activityList.innerHTML = `<li class="list-group-item text-danger">Gabim: ${error.message}</li>`;
+    activityList.innerHTML = `<li class="list-group-item text-danger">Gabim: ${escapeHtml(error.message)}</li>`;
     return;
   }
 
@@ -663,14 +690,16 @@ async function loadProjectActivity(projectId) {
     const prof = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
     const emri = (prof?.full_name || "").trim() || "Përdorues";
 
-    li.innerHTML = `<div class="fw-semibold">${escapeHtml(a.action || "veprim")}</div>
-                    <div class="small text-muted">${escapeHtml(emri)} • ${escapeHtml(a.target || "")} • ${fmtDate(a.timestamp)}</div>`;
+    li.innerHTML = `
+      <div class="fw-semibold">${escapeHtml(a.action || "veprim")}</div>
+      <div class="small text-muted">${escapeHtml(emri)} • ${escapeHtml(a.target || "")} • ${escapeHtml(fmtDate(a.timestamp))}</div>
+    `;
     activityList.appendChild(li);
   });
 }
 
-// Upload modal
-uploadModalEl.addEventListener("show.bs.modal", (evt) => {
+// ---------- upload modal ----------
+uploadModalEl?.addEventListener("show.bs.modal", (evt) => {
   const btn = evt.relatedTarget;
   const section = btn?.getAttribute?.("data-section") || "skica";
 
@@ -693,7 +722,6 @@ async function tryProcessorHealth() {
     return false;
   }
 }
-
 async function processWithProcessor(file) {
   const fd = new FormData();
   fd.append("file", file, file.name);
@@ -737,8 +765,6 @@ async function uploadOne(projectId, section, file) {
 
   const { error: insErr } = await sup.from("skicat").insert(baseRow);
   if (insErr) throw insErr;
-
-  return { path, ftype };
 }
 
 async function handleUpload(e) {
@@ -752,8 +778,11 @@ async function handleUpload(e) {
   if (!files.length) return showAlert("Zgjidh të paktën një skedar.", "warning");
 
   const canAutoClean = section === "raw_points";
-  let processorOk = false;
-  if (canAutoClean) processorOk = await tryProcessorHealth();
+  const processorOk = canAutoClean ? await tryProcessorHealth() : false;
+
+  if (canAutoClean && !processorOk) {
+    showAlert("Serveri i pastrimit nuk u gjet. RAW do të ngarkohet normalisht (pa pastrim automatik).", "warning", 9000);
+  }
 
   showAlert(`Po ngarkohen ${files.length} skedar(ë)...`, "info", 2500);
 
@@ -772,19 +801,19 @@ async function handleUpload(e) {
           const cleanedFile = new File([cleanedBlob], cleanedName, { type: "text/plain" });
 
           await uploadOne(projectId, "processed_points", cleanedFile);
-          await logActivity(projectId, `u krijua ${cleanedName}`, `auto-clean`);
+          await logActivity(projectId, `u krijua ${cleanedName}`, "auto-clean");
           showAlert(`U pastrua automatikisht: ${cleanedName}`, "success", 3500);
         } catch (pe) {
-          showAlert(`Pastrim automatik dështoi për ${f.name}: ${pe.message}`, "warning", 9000);
+          showAlert(`Pastrim automatik dështoi për ${f.name}: ${escapeHtml(pe.message)}`, "warning", 9000);
         }
       }
     } catch (err) {
       fail++;
-      showAlert(`Dështoi: ${f.name} — ${err.message}`, "danger", 9000);
+      showAlert(`Dështoi: ${escapeHtml(f.name)} — ${escapeHtml(err.message)}`, "danger", 9000);
     }
   }
 
-  showAlert(`Ngarkimi përfundoi: ${ok} sukses, ${fail} dështime.`, fail ? "warning" : "success", 6000);
+  showAlert(`Ngarkimi përfundoi: ${ok} sukses, ${fail} dështime.`, fail ? "warning" : "success", 6500);
 
   bootstrap.Modal.getInstance(uploadModalEl)?.hide();
   cleanupBackdrops();
@@ -793,16 +822,10 @@ async function handleUpload(e) {
   await loadKPIs();
   if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
 }
-uploadForm.addEventListener("submit", handleUpload);
 
-// Deliverable modal
-function toDatetimeLocalValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+uploadForm?.addEventListener("submit", handleUpload);
 
+// ---------- deliverable modal ----------
 function openDeliverableModal(fileId) {
   const f = fileIndexById[String(fileId)];
   if (!f) return showAlert("Gabim: file nuk u gjet.", "danger");
@@ -816,7 +839,7 @@ function openDeliverableModal(fileId) {
   new bootstrap.Modal(deliverableModalEl).show();
 }
 
-deliverableForm.addEventListener("submit", async (e) => {
+deliverableForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const fileId = deliverableFileId.value;
@@ -848,29 +871,22 @@ deliverableForm.addEventListener("submit", async (e) => {
       await loadProjectActivity(selectedProject.id);
     }
   } catch (err) {
-    showAlert(`Gabim: ${err.message}`, "danger", 9000);
+    showAlert(`Gabim: ${escapeHtml(err.message)}`, "danger", 9000);
   }
 });
 
-// SAFE refresh (kjo është pjesa kryesore që s’të ngec më “loading”)
+// ---------- SAFE refresh ----------
 async function hardRefresh() {
   if (isRefreshing) return;
   isRefreshing = true;
 
   try {
-    const results = await Promise.allSettled([
-      loadCategories(),
-      loadProjects(),
-      loadKPIs(),
-    ]);
-
-    const errs = results
-      .filter(r => r.status === "rejected")
-      .map(r => r.reason?.message || String(r.reason));
+    const results = await Promise.allSettled([loadCategories(), loadProjects(), loadKPIs()]);
+    const errs = results.filter(r => r.status === "rejected").map(r => r.reason?.message || String(r.reason));
 
     if (errs.length) {
       console.error("Refresh errors:", errs);
-      showAlert("Disa të dhëna nuk u ngarkuan. Provo Dil/Hyr ose kontrollo RLS.", "warning", 9000);
+      showAlert("Disa të dhëna nuk u ngarkuan. Kontrollo RLS/Policies.", "warning", 9000);
     }
 
     if (selectedProject?.id) {
@@ -880,6 +896,7 @@ async function hardRefresh() {
       ]);
     }
 
+    // refresh header (name/email)
     try {
       const { data } = await sup.auth.getSession();
       if (data?.session) await setAppVisible(true, data.session);
@@ -889,7 +906,19 @@ async function hardRefresh() {
   }
 }
 
-// INIT
+// ---------- anti-freeze ----------
+setInterval(async () => {
+  try { await sup.auth.getSession(); } catch {}
+}, 45000);
+
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible") {
+    try { await sup.auth.getSession(); } catch {}
+    try { await hardRefresh(); } catch {}
+  }
+});
+
+// ---------- init ----------
 async function init() {
   if (rememberMeEl) rememberMeEl.checked = getRememberMe();
 
@@ -897,7 +926,6 @@ async function init() {
   const session = data?.session;
 
   await setAppVisible(!!session, session);
-
   if (session) await hardRefresh();
 }
 
@@ -907,21 +935,21 @@ sup.auth.onAuthStateChange(async (_event, session) => {
   else clearPanel();
 });
 
-// Events
-signupBtn.addEventListener("click", handleSignUp);
-loginBtn.addEventListener("click", handleLogin);
-logoutBtn.addEventListener("click", handleLogout);
+// events
+signupBtn?.addEventListener("click", handleSignUp);
+loginBtn?.addEventListener("click", handleLogin);
+logoutBtn?.addEventListener("click", handleLogout);
 
-refreshBtn.addEventListener("click", hardRefresh);
-searchInput.addEventListener("input", renderProjectsTable);
-filterCategory.addEventListener("change", renderProjectsTable);
+refreshBtn?.addEventListener("click", hardRefresh);
+searchInput?.addEventListener("input", renderProjectsTable);
+filterCategory?.addEventListener("change", renderProjectsTable);
 
-projectForm.addEventListener("submit", handleCreateProject);
+projectForm?.addEventListener("submit", handleCreateProject);
 
-refreshFilesBtn.addEventListener("click", async () => {
+refreshFilesBtn?.addEventListener("click", async () => {
   if (selectedProject?.id) await loadAllFilesForProject(selectedProject.id);
 });
-refreshActivityBtn.addEventListener("click", async () => {
+refreshActivityBtn?.addEventListener("click", async () => {
   if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
 });
 
