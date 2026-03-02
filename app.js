@@ -1,10 +1,11 @@
 /**
- * Databaza New Vision Project - FIXED (Name locked after first register)
- * - Anti-freeze / session refresh
- * - Download direkt (jo tab) për txt/imahe/dwg
+ * Databaza New Vision Project - STABLE
+ * - Anti-freeze + session keepalive
+ * - Safe refresh (nuk ngec në "Duke ngarkuar..." nëse 1 query dështon)
+ * - Download direkt (jo tab)
  * - Activity me emra (profiles.full_name)
  * - Remember me
- * - Full Name ruhet vetem 1 here (nuk ndryshohet me pas)
+ * - Full Name ruhet vetëm 1 herë (s’ndryshohet pas regjistrimit)
  */
 
 const SUPABASE_URL = "https://isakjtxcjpifuvhzpltq.supabase.co";
@@ -30,7 +31,6 @@ function extOf(name) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
 }
-
 function fileTypeFromExt(ext) {
   if (["csv", "idx"].includes(ext)) return "points_raw";
   if (["txt"].includes(ext)) return "points_processed";
@@ -40,27 +40,21 @@ function fileTypeFromExt(ext) {
   if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
   return "other";
 }
-
 function rand6() {
   return Math.random().toString(36).slice(2, 8);
 }
 
-/**
- * ✅ Stabilitet maksimal:
- * - localStorage per token (shmang “lock”/freeze)
- * - rememberMe ruhet në localStorage
- */
+// Remember me
 const REMEMBER_KEY = "nvp-remember-me";
-
 function getRememberMe() {
   const v = localStorage.getItem(REMEMBER_KEY);
-  // default ON
   return v === null ? true : v === "1";
 }
 function setRememberMe(v) {
   localStorage.setItem(REMEMBER_KEY, v ? "1" : "0");
 }
 
+// Supabase client
 function makeSupabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
@@ -71,26 +65,25 @@ function makeSupabaseClient() {
     },
   });
 }
-
 let sup = makeSupabaseClient();
 sup.auth.startAutoRefresh();
 
-// Anti-freeze: nxit refresh çdo 60s (sidomos mobile)
+// Keepalive (anti-freeze)
 setInterval(async () => {
   try {
-    await sup.auth.getSession();
-  } catch {}
-}, 60000);
+    const { data, error } = await sup.auth.getSession();
+    if (error) console.warn("getSession error:", error);
+    if (!data?.session) console.warn("No session detected (keepalive).");
+  } catch (e) {
+    console.warn("keepalive failed:", e);
+  }
+}, 45000);
 
-// Kur rikthehesh në tab/telefon, rifresko
+// Tab visibility refresh
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState === "visible") {
-    try {
-      await sup.auth.getSession();
-    } catch {}
-    try {
-      await hardRefresh();
-    } catch {}
+    try { await sup.auth.getSession(); } catch {}
+    try { await hardRefresh(); } catch {}
   }
 });
 
@@ -116,7 +109,6 @@ const kpiProjects = document.getElementById("kpi-projects");
 const kpiFiles = document.getElementById("kpi-files");
 const kpiActivity = document.getElementById("kpi-activity");
 
-// Panel
 const panelHint = document.getElementById("panel-hint");
 const panelProjectId = document.getElementById("panel-project-id");
 const panelContent = document.getElementById("panel-content");
@@ -128,7 +120,6 @@ const refreshFilesBtn = document.getElementById("refresh-files-btn");
 const refreshActivityBtn = document.getElementById("refresh-activity-btn");
 const activityList = document.getElementById("activity-list");
 
-// Upload modal
 const uploadModalEl = document.getElementById("uploadModal");
 const uploadForm = document.getElementById("upload-form");
 const uploadProjectIdInput = document.getElementById("upload-project-id");
@@ -136,7 +127,6 @@ const uploadSectionInput = document.getElementById("upload-section");
 const uploadSectionLabel = document.getElementById("upload-section-label");
 const uploadFilesInput = document.getElementById("upload-files");
 
-// Deliverable modal
 const deliverableModalEl = document.getElementById("deliverableModal");
 const deliverableForm = document.getElementById("deliverable-form");
 const deliverableFileId = document.getElementById("deliverable-file-id");
@@ -146,8 +136,6 @@ const deliverableDate = document.getElementById("deliverable-date");
 const deliverableComment = document.getElementById("deliverable-comment");
 
 const rememberMeEl = document.getElementById("remember-me");
-
-// Auth inputs
 const authFullnameEl = document.getElementById("auth-fullname");
 const authEmailEl = document.getElementById("auth-email");
 const authPassEl = document.getElementById("auth-password");
@@ -158,9 +146,9 @@ let categoryMap = {};
 let allProjects = [];
 let selectedProject = null;
 let isRefreshing = false;
-let fileIndexById = {}; // for modal
+let fileIndexById = {};
 
-function showAlert(message, type = "info", timeout = 5000) {
+function showAlert(message, type = "info", timeout = 6000) {
   const wrapper = document.createElement("div");
   wrapper.innerHTML = `
     <div class="alert alert-${type} alert-dismissible fade show" role="alert">
@@ -222,9 +210,7 @@ function buildCategoryMap() {
   (categories || []).forEach((c) => (categoryMap[String(c.id)] = c.name || `Kategori ${c.id}`));
 }
 
-/**
- * ✅ Merr full_name nga profiles për userin aktual
- */
+// profile name
 async function getMyProfileName() {
   const { data: userData } = await sup.auth.getUser();
   const user = userData?.user;
@@ -237,19 +223,13 @@ async function getMyProfileName() {
   return nm || null;
 }
 
-/**
- * ✅ Vendos UI (shfaq full_name në header, nëse ekziston)
- */
 async function setAppVisible(isLoggedIn, session) {
   if (isLoggedIn) {
     authSection.classList.add("hidden");
     appSection.classList.remove("hidden");
 
-    // prefero full_name
     let display = null;
-    try {
-      display = await getMyProfileName();
-    } catch {}
+    try { display = await getMyProfileName(); } catch {}
     userEmailTop.textContent = display || session?.user?.email || "—";
   } else {
     authSection.classList.remove("hidden");
@@ -277,10 +257,9 @@ async function logActivity(projectId, action, target = null) {
   }
 }
 
-// ✅ Shkarkim direkt (jo tab)
+// download direct
 async function shkarkoNgaStorage(filePath) {
   const fileName = (filePath || "").split("/").pop() || "skedar";
-
   const { data, error } = await sup.storage.from(BUCKET).download(filePath);
   if (error) throw error;
 
@@ -294,28 +273,19 @@ async function shkarkoNgaStorage(filePath) {
   URL.revokeObjectURL(blobUrl);
 }
 
-/**
- * ✅ “Remember me”
- * - nëse OFF → signOut në beforeunload
- */
+// remember policy
 function applyRememberPolicy() {
   const remember = rememberMeEl?.checked ?? true;
   setRememberMe(remember);
 
   if (!remember) {
     window.addEventListener("beforeunload", () => {
-      try {
-        sup.auth.signOut();
-      } catch {}
+      try { sup.auth.signOut(); } catch {}
     });
   }
 }
 
-/**
- * ✅ REGJISTRIM:
- * - full_name i detyrueshem
- * - ruhet vetem NQS profili nuk ka full_name (pra 1 here)
- */
+// SIGN UP (name locked)
 async function handleSignUp(e) {
   e.preventDefault();
 
@@ -334,23 +304,15 @@ async function handleSignUp(e) {
 
     const userId = data?.user?.id;
     if (userId) {
-      // kontrollo nese ekziston full_name (mos e ndrysho nese ekziston)
       const { data: prof } = await sup.from("profiles").select("full_name").eq("id", userId).maybeSingle();
-
       const existing = (prof?.full_name || "").trim();
       if (!existing) {
-        // ruaj nje here
         const { error: pErr } = await sup.from("profiles").upsert({ id: userId, full_name: fullName });
         if (pErr) console.warn("profiles upsert:", pErr);
-      } else {
-        // nuk e ndryshojme
-        console.info("full_name ekziston, nuk u ndryshua.");
       }
     }
 
     showAlert("Regjistrimi u krye. Tani mund të hysh me email/fjalëkalim.", "success", 7000);
-
-    // pas regjistrimit: boshatis fullname që mos të ngatërrohet te login
     if (authFullnameEl) authFullnameEl.value = "";
   } catch (err) {
     showAlert(`Gabim në regjistrim: ${err.message}`, "danger", 9000);
@@ -366,10 +328,8 @@ async function handleLogin(e) {
 
   try {
     applyRememberPolicy();
-
     const { error } = await sup.auth.signInWithPassword({ email, password });
     if (error) throw error;
-
     showAlert("U futët me sukses.", "success", 2500);
   } catch (err) {
     showAlert(`Gabim në hyrje: ${err.message}`, "danger", 9000);
@@ -387,38 +347,56 @@ async function handleLogout(e) {
   }
 }
 
-// Data
+// DATA
 async function loadCategories() {
-  const { data, error } = await sup.from("project_categories").select("id,name").order("id", { ascending: true });
-  if (error) throw error;
+  try {
+    const { data, error } = await sup.from("project_categories").select("id,name").order("id", { ascending: true });
+    if (error) throw error;
 
-  categories = data || [];
-  buildCategoryMap();
+    categories = data || [];
+    buildCategoryMap();
 
-  projectCategorySelect.innerHTML = "";
-  if (categories.length === 0) {
-    const opt = document.createElement("option");
-    opt.textContent = "Nuk ka kategori";
-    opt.disabled = true;
-    projectCategorySelect.appendChild(opt);
-  } else {
+    // project modal select
+    projectCategorySelect.innerHTML = "";
+    if (!categories.length) {
+      projectCategorySelect.innerHTML = `<option value="">Nuk ka kategori</option>`;
+    } else {
+      categories.forEach((c) => {
+        const opt = document.createElement("option");
+        opt.value = String(c.id);
+        opt.textContent = c.name;
+        projectCategorySelect.appendChild(opt);
+      });
+    }
+
+    // filter select
+    const current = filterCategory.value || "";
+    filterCategory.innerHTML = `<option value="">Të gjitha kategoritë</option>`;
     categories.forEach((c) => {
       const opt = document.createElement("option");
       opt.value = String(c.id);
       opt.textContent = c.name;
-      projectCategorySelect.appendChild(opt);
+      filterCategory.appendChild(opt);
     });
-  }
+    filterCategory.value = current;
 
-  const current = filterCategory.value || "";
-  filterCategory.innerHTML = `<option value="">Të gjitha kategoritë</option>`;
-  categories.forEach((c) => {
-    const opt = document.createElement("option");
-    opt.value = String(c.id);
-    opt.textContent = c.name;
-    filterCategory.appendChild(opt);
-  });
-  filterCategory.value = current;
+  } catch (e) {
+    console.error("loadCategories failed:", e);
+
+    // mos e lër UI në "Duke ngarkuar..."
+    projectCategorySelect.innerHTML = `<option value="">(Gabim kategori)</option>`;
+    filterCategory.innerHTML = `<option value="">(Gabim kategori)</option>`;
+
+    showAlert(
+      `Kategoritë nuk u ngarkuan. Shkak tipik: RLS/Permissions te tabela <b>project_categories</b>.<br/>Detaj: ${e.message}`,
+      "warning",
+      12000
+    );
+
+    // rëndësi: mos e "throw" që app të vazhdojë me projektet/materialet
+    categories = [];
+    buildCategoryMap();
+  }
 }
 
 async function loadProjects() {
@@ -439,15 +417,11 @@ async function loadKPIs() {
   if (typeof filesCount === "number") kpiFiles.textContent = String(filesCount);
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count: actCount } = await sup
-    .from("activity_log")
-    .select("*", { count: "exact", head: true })
-    .gte("timestamp", since);
-
+  const { count: actCount } = await sup.from("activity_log").select("*", { count: "exact", head: true }).gte("timestamp", since);
   if (typeof actCount === "number") kpiActivity.textContent = String(actCount);
 }
 
-// Render projects table
+// Projects table
 function renderProjectsTable() {
   const q = (searchInput.value || "").toLowerCase().trim();
   const cat = filterCategory.value || "";
@@ -458,7 +432,7 @@ function renderProjectsTable() {
 
   projectsTableBody.innerHTML = "";
 
-  if (filtered.length === 0) {
+  if (!filtered.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 5;
@@ -477,7 +451,7 @@ function renderProjectsTable() {
     tr.appendChild(tdName);
 
     const tdCat = document.createElement("td");
-    tdCat.textContent = categoryMap[String(p.category_id)] || "N/A";
+    tdCat.textContent = categoryMap[String(p.category_id)] || `ID ${p.category_id || "—"}`;
     tr.appendChild(tdCat);
 
     const tdLoc = document.createElement("td");
@@ -546,14 +520,13 @@ async function setPanel(project) {
   panelContent.classList.remove("hidden");
 
   panelProjectName.textContent = project.name || "Pa emër";
-  panelProjectCategory.textContent = categoryMap[String(project.category_id)] || "N/A";
+  panelProjectCategory.textContent = categoryMap[String(project.category_id)] || `ID ${project.category_id || "—"}`;
   panelProjectLocation.textContent = project.location || "—";
 
   await loadAllFilesForProject(project.id);
   await loadProjectActivity(project.id);
 }
 
-// Helpers
 function escapeHtml(str) {
   return String(str || "")
     .replaceAll("&", "&amp;")
@@ -565,19 +538,14 @@ function escapeHtml(str) {
 
 function statusChip(status, deliveredAt) {
   const st = status || "ne_pritje";
-  if (st === "dorezuar") {
-    return `<span class="chip ok">Dorëzuar • ${escapeHtml(fmtDate(deliveredAt))}</span>`;
-  }
-  if (st === "anuluar") {
-    return `<span class="chip gray">Anuluar</span>`;
-  }
+  if (st === "dorezuar") return `<span class="chip ok">Dorëzuar • ${escapeHtml(fmtDate(deliveredAt))}</span>`;
+  if (st === "anuluar") return `<span class="chip gray">Anuluar</span>`;
   return `<span class="chip warn">Në pritje</span>`;
 }
 
-// Load files grouped by section
+// Files list
 async function loadAllFilesForProject(projectId) {
   fileIndexById = {};
-
   Object.keys(SECTION_LABELS).forEach((sec) => {
     const ul = document.getElementById(`list-${sec}`);
     if (ul) ul.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
@@ -585,9 +553,7 @@ async function loadAllFilesForProject(projectId) {
 
   const { data, error } = await sup
     .from("skicat")
-    .select(
-      "id,project_id,file_path,original_name,file_type,section,uploaded_at,uploaded_by,deliverable_status,delivered_at,deliverable_comment"
-    )
+    .select("id,project_id,file_path,original_name,file_type,section,uploaded_at,uploaded_by,deliverable_status,delivered_at,deliverable_comment")
     .eq("project_id", projectId)
     .order("uploaded_at", { ascending: false });
 
@@ -650,12 +616,8 @@ function renderFileRow(section, f) {
   btnDl.className = "btn btn-sm btn-outline-success";
   btnDl.textContent = "Shkarko";
   btnDl.addEventListener("click", async () => {
-    try {
-      await shkarkoNgaStorage(f.file_path);
-    } catch (e) {
-      showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000);
-      console.error(e);
-    }
+    try { await shkarkoNgaStorage(f.file_path); }
+    catch (e) { showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000); }
   });
   right.appendChild(btnDl);
 
@@ -707,7 +669,7 @@ async function loadProjectActivity(projectId) {
   });
 }
 
-// Upload modal setup
+// Upload modal
 uploadModalEl.addEventListener("show.bs.modal", (evt) => {
   const btn = evt.relatedTarget;
   const section = btn?.getAttribute?.("data-section") || "skica";
@@ -737,7 +699,6 @@ async function processWithProcessor(file) {
   fd.append("file", file, file.name);
 
   const resp = await fetch(`${PROCESSOR_BASE}/process`, { method: "POST", body: fd });
-
   if (!resp.ok) {
     const t = await resp.text().catch(() => "");
     throw new Error(`Serveri i pastrimit error (${resp.status}): ${t || "n/a"}`);
@@ -791,29 +752,20 @@ async function handleUpload(e) {
   if (!files.length) return showAlert("Zgjidh të paktën një skedar.", "warning");
 
   const canAutoClean = section === "raw_points";
-  const autoClean = canAutoClean;
-
   let processorOk = false;
-  if (canAutoClean) {
-    processorOk = await tryProcessorHealth();
-    if (!processorOk) {
-      showAlert("Serveri i pastrimit nuk u gjet. RAW do të ngarkohet normalisht, pa pastrim automatik.", "warning", 8000);
-    }
-  }
+  if (canAutoClean) processorOk = await tryProcessorHealth();
 
   showAlert(`Po ngarkohen ${files.length} skedar(ë)...`, "info", 2500);
 
-  let ok = 0,
-    fail = 0;
+  let ok = 0, fail = 0;
 
   for (const f of files) {
     try {
       await uploadOne(projectId, section, f);
       ok++;
-
       await logActivity(projectId, `u ngarkua ${f.name}`, `storage/${BUCKET}/${section}`);
 
-      if (autoClean && processorOk && ["csv", "idx"].includes(extOf(f.name))) {
+      if (canAutoClean && processorOk && ["csv", "idx"].includes(extOf(f.name))) {
         try {
           const cleanedBlob = await processWithProcessor(f);
           const cleanedName = f.name.replace(/\.(csv|idx)$/i, "") + "_clean.txt";
@@ -823,13 +775,11 @@ async function handleUpload(e) {
           await logActivity(projectId, `u krijua ${cleanedName}`, `auto-clean`);
           showAlert(`U pastrua automatikisht: ${cleanedName}`, "success", 3500);
         } catch (pe) {
-          console.error("Auto-clean failed:", pe);
           showAlert(`Pastrim automatik dështoi për ${f.name}: ${pe.message}`, "warning", 9000);
         }
       }
     } catch (err) {
       fail++;
-      console.error("Upload failed:", f.name, err);
       showAlert(`Dështoi: ${f.name} — ${err.message}`, "danger", 9000);
     }
   }
@@ -843,7 +793,6 @@ async function handleUpload(e) {
   await loadKPIs();
   if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
 }
-
 uploadForm.addEventListener("submit", handleUpload);
 
 // Deliverable modal
@@ -851,9 +800,7 @@ function toDatetimeLocalValue(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function openDeliverableModal(fileId) {
@@ -884,18 +831,12 @@ deliverableForm.addEventListener("submit", async (e) => {
   try {
     const { error } = await sup
       .from("skicat")
-      .update({
-        deliverable_status: st,
-        delivered_at: deliveredAt,
-        deliverable_comment: comment,
-      })
+      .update({ deliverable_status: st, delivered_at: deliveredAt, deliverable_comment: comment })
       .eq("id", fileId);
 
     if (error) throw error;
 
-    if (selectedProject?.id) {
-      await logActivity(selectedProject.id, `u ndryshua statusi: ${st}`, `skicat/${fileId}`);
-    }
+    if (selectedProject?.id) await logActivity(selectedProject.id, `u ndryshua statusi: ${st}`, `skicat/${fileId}`);
 
     showAlert("Statusi u ruajt.", "success", 2500);
 
@@ -911,36 +852,45 @@ deliverableForm.addEventListener("submit", async (e) => {
   }
 });
 
-// Refresh all
+// SAFE refresh (kjo është pjesa kryesore që s’të ngec më “loading”)
 async function hardRefresh() {
   if (isRefreshing) return;
   isRefreshing = true;
-  try {
-    await loadCategories();
-    await loadProjects();
-    await loadKPIs();
 
-    if (selectedProject?.id) {
-      await loadAllFilesForProject(selectedProject.id);
-      await loadProjectActivity(selectedProject.id);
+  try {
+    const results = await Promise.allSettled([
+      loadCategories(),
+      loadProjects(),
+      loadKPIs(),
+    ]);
+
+    const errs = results
+      .filter(r => r.status === "rejected")
+      .map(r => r.reason?.message || String(r.reason));
+
+    if (errs.length) {
+      console.error("Refresh errors:", errs);
+      showAlert("Disa të dhëna nuk u ngarkuan. Provo Dil/Hyr ose kontrollo RLS.", "warning", 9000);
     }
 
-    // rifresko header me full_name (nëse ekziston)
+    if (selectedProject?.id) {
+      await Promise.allSettled([
+        loadAllFilesForProject(selectedProject.id),
+        loadProjectActivity(selectedProject.id),
+      ]);
+    }
+
     try {
       const { data } = await sup.auth.getSession();
       if (data?.session) await setAppVisible(true, data.session);
     } catch {}
-  } catch (e) {
-    console.error("Detaje error:", e);
-    showAlert(`Gabim gjatë rifreskimit: ${e.message}`, "danger", 9000);
   } finally {
     isRefreshing = false;
   }
 }
 
-// Init
+// INIT
 async function init() {
-  // vendos remember checkbox sipas localStorage
   if (rememberMeEl) rememberMeEl.checked = getRememberMe();
 
   const { data } = await sup.auth.getSession();
