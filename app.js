@@ -1,928 +1,708 @@
-/**
- * Databaza New Vision Project - STABLE
- * - Anti-freeze + session keepalive
- * - Safe refresh (nuk ngec në "Duke ngarkuar..." nëse 1 query dështon)
- * - Download direkt (jo tab)
- * - Activity me emra (profiles.full_name)
- * - Remember me
- * - Full Name ruhet vetëm 1 herë (s’ndryshohet pas regjistrimit)
- */
+<!doctype html>
+<html lang="sq">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Databaza New Vision Project</title>
 
-const SUPABASE_URL = "https://isakjtxcjpifuvhzpltq.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlzYWtqdHhjanBpZnV2aHpwbHRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MDA0ODQsImV4cCI6MjA4NzE3NjQ4NH0.3W1pM35dIZxsTnBpdXdiRYMBaFO4sV1oU8UnDBbNfsc";
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      crossorigin="anonymous"
+    />
 
-const BUCKET = "skica";
-const PROCESSOR_BASE = "https://pastrimi-pikave-yllarti.onrender.com";
+    <style>
+      :root{
+        --bg1:#06121b;
+        --bg2:#0b2233;
 
-const SECTION_LABELS = {
-  raw_points: "01 - Pika (RAW)",
-  processed_points: "02 - Pika (PROCESSED)",
-  dwg_plane: "03 - DWG Plane",
-  dwg_pamje: "04 - DWG Pamje / Fasada",
-  dwg_final: "05 - DWG Finale",
-  dorezime: "06 - Dorëzime",
-  skica: "07 - Skica / Materiale të tjera",
-};
+        --card: rgba(255,255,255,.06);
+        --line: rgba(255,255,255,.10);
 
-const DELIVERABLE_SECTIONS = new Set(["dwg_final", "dorezime"]);
+        --text:#eaf4ff;
+        --muted: rgba(234,244,255,.72);
 
-function extOf(name) {
-  const i = name.lastIndexOf(".");
-  return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
-}
-function fileTypeFromExt(ext) {
-  if (["csv", "idx"].includes(ext)) return "points_raw";
-  if (["txt"].includes(ext)) return "points_processed";
-  if (["dwg"].includes(ext)) return "dwg";
-  if (["pdf"].includes(ext)) return "pdf";
-  if (["zip", "rar", "7z"].includes(ext)) return "archive";
-  if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
-  return "other";
-}
-function rand6() {
-  return Math.random().toString(36).slice(2, 8);
-}
+        --accent:#32d0a5;
+        --accent2:#4cc3ff;
 
-// Remember me
-const REMEMBER_KEY = "nvp-remember-me";
-function getRememberMe() {
-  const v = localStorage.getItem(REMEMBER_KEY);
-  return v === null ? true : v === "1";
-}
-function setRememberMe(v) {
-  localStorage.setItem(REMEMBER_KEY, v ? "1" : "0");
-}
+        --shadow: 0 18px 42px rgba(0,0,0,.38);
+        --radius: 18px;
+      }
 
-// Supabase client
-function makeSupabaseClient() {
-  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storage: window.localStorage,
-    },
-  });
-}
-let sup = makeSupabaseClient();
-sup.auth.startAutoRefresh();
+      body{
+        min-height: 100vh;
+        color: var(--text);
+        background:
+          radial-gradient(900px 500px at 16% 12%, rgba(76,195,255,.18), transparent 60%),
+          radial-gradient(820px 500px at 92% 18%, rgba(50,208,165,.16), transparent 55%),
+          linear-gradient(180deg, var(--bg1), var(--bg2));
+        padding-top: 1.25rem;
+        padding-bottom: 4.3rem;
+      }
 
-// Keepalive (anti-freeze)
-setInterval(async () => {
-  try {
-    const { data, error } = await sup.auth.getSession();
-    if (error) console.warn("getSession error:", error);
-    if (!data?.session) console.warn("No session detected (keepalive).");
-  } catch (e) {
-    console.warn("keepalive failed:", e);
-  }
-}, 45000);
+      .hidden{ display: none !important; }
+      .muted{ color: var(--muted) !important; }
+      .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 
-// Tab visibility refresh
-document.addEventListener("visibilitychange", async () => {
-  if (document.visibilityState === "visible") {
-    try { await sup.auth.getSession(); } catch {}
-    try { await hardRefresh(); } catch {}
-  }
-});
+      .nvp-header{
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+        box-shadow: var(--shadow);
+        border-radius: var(--radius);
+        padding: 16px 16px;
+        position: relative;
+        overflow: hidden;
+      }
+      .nvp-header::before{
+        content:"";
+        position:absolute; inset:-2px;
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(255,255,255,.07) 0px,
+            rgba(255,255,255,.07) 1px,
+            transparent 1px,
+            transparent 14px
+          );
+        opacity:.16;
+        pointer-events:none;
+      }
 
-// UI refs
-const alertArea = document.getElementById("alert-area");
-const authSection = document.getElementById("auth-section");
-const appSection = document.getElementById("app-section");
-const userEmailTop = document.getElementById("user-email-top");
+      .brand{
+        display:flex;
+        align-items:center;
+        gap: 12px;
+      }
+      .brand-title{
+        margin:0;
+        font-weight: 950;
+        letter-spacing: .2px;
+        line-height: 1.05;
+      }
+      .brand-sub{
+        margin-top: 4px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .brand-badge{
+        display:inline-flex;
+        align-items:center;
+        gap:.45rem;
+        padding:.18rem .6rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.06);
+        color: var(--muted);
+        font-size: 12px;
+        width: fit-content;
+        margin-top: 6px;
+      }
 
-const signupBtn = document.getElementById("signup-btn");
-const loginBtn = document.getElementById("login-btn");
-const logoutBtn = document.getElementById("logout-btn");
-const refreshBtn = document.getElementById("refresh-btn");
+      .card{
+        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+        border: 1px solid var(--line);
+        border-radius: var(--radius) !important;
+        box-shadow: var(--shadow);
+        color: var(--text);
+      }
+      .card .card-body{ padding: 16px; }
 
-const projectForm = document.getElementById("project-form");
-const projectCategorySelect = document.getElementById("project-category");
-const projectsTableBody = document.querySelector("#projects-table tbody");
+      .btn{ border-radius: 14px; font-weight: 700; }
+      .btn-primary{
+        background: linear-gradient(90deg, var(--accent2), var(--accent));
+        border: 0;
+        color: #041219;
+      }
+      .btn-primary:hover{ filter: brightness(1.06); }
+      .btn-success{
+        background: linear-gradient(90deg, rgba(43,213,118,.95), rgba(50,208,165,.95));
+        border: 0;
+        color: #041219;
+      }
+      .btn-outline-primary{
+        border-color: rgba(76,195,255,.55);
+        color: var(--text);
+      }
+      .btn-outline-primary:hover{
+        background: rgba(76,195,255,.16);
+        border-color: rgba(76,195,255,.75);
+        color: var(--text);
+      }
+      .btn-outline-secondary{
+        border-color: rgba(255,255,255,.22);
+        color: var(--text);
+      }
+      .btn-outline-secondary:hover{
+        background: rgba(255,255,255,.10);
+        border-color: rgba(255,255,255,.30);
+        color: var(--text);
+      }
 
-const filterCategory = document.getElementById("filter-category");
-const searchInput = document.getElementById("search-input");
+      .form-control, .form-select{
+        background: rgba(255,255,255,.06);
+        border: 1px solid var(--line);
+        color: var(--text);
+        border-radius: 14px;
+      }
+      .form-control::placeholder{ color: rgba(234,244,255,.55); }
+      .form-control:focus, .form-select:focus{
+        border-color: rgba(76,195,255,.55);
+        box-shadow: 0 0 0 .2rem rgba(76,195,255,.15);
+        background: rgba(255,255,255,.07);
+        color: var(--text);
+      }
+      .form-check-input{
+        background-color: rgba(255,255,255,.08);
+        border: 1px solid var(--line);
+      }
 
-const kpiProjects = document.getElementById("kpi-projects");
-const kpiFiles = document.getElementById("kpi-files");
-const kpiActivity = document.getElementById("kpi-activity");
+      .table{
+        --bs-table-bg: transparent;
+        --bs-table-striped-bg: rgba(255,255,255,.04);
+        --bs-table-border-color: rgba(255,255,255,.10);
+        color: var(--text);
+      }
+      .table thead th{
+        background: rgba(255,255,255,.06);
+        color: var(--text);
+        border-bottom: 1px solid rgba(255,255,255,.10);
+      }
 
-const panelHint = document.getElementById("panel-hint");
-const panelProjectId = document.getElementById("panel-project-id");
-const panelContent = document.getElementById("panel-content");
-const panelProjectName = document.getElementById("panel-project-name");
-const panelProjectCategory = document.getElementById("panel-project-category");
-const panelProjectLocation = document.getElementById("panel-project-location");
+      .card-kpi{ min-height: 112px; }
+      .display-6{ font-weight: 950; }
 
-const refreshFilesBtn = document.getElementById("refresh-files-btn");
-const refreshActivityBtn = document.getElementById("refresh-activity-btn");
-const activityList = document.getElementById("activity-list");
+      .accordion-item{
+        border: 1px solid rgba(255,255,255,.10);
+        border-radius: 16px !important;
+        overflow: hidden;
+        background: rgba(255,255,255,.03);
+        margin-bottom: 10px;
+      }
+      .accordion-button{
+        background: rgba(255,255,255,.05);
+        color: var(--text);
+        font-weight: 850;
+      }
+      .accordion-button:not(.collapsed){
+        background: rgba(76,195,255,.10);
+        color: var(--text);
+      }
+      .accordion-button:focus{
+        box-shadow: 0 0 0 .2rem rgba(76,195,255,.12);
+      }
 
-const uploadModalEl = document.getElementById("uploadModal");
-const uploadForm = document.getElementById("upload-form");
-const uploadProjectIdInput = document.getElementById("upload-project-id");
-const uploadSectionInput = document.getElementById("upload-section");
-const uploadSectionLabel = document.getElementById("upload-section-label");
-const uploadFilesInput = document.getElementById("upload-files");
+      .file-list .list-group-item{
+        background: rgba(255,255,255,.03);
+        border-color: rgba(255,255,255,.10);
+        color: var(--text);
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:.75rem;
+      }
+      .file-meta{ min-width:0; }
+      .file-name{
+        font-weight: 850;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 52vw;
+      }
+      @media (min-width: 992px) { .file-name { max-width: 280px; } }
 
-const deliverableModalEl = document.getElementById("deliverableModal");
-const deliverableForm = document.getElementById("deliverable-form");
-const deliverableFileId = document.getElementById("deliverable-file-id");
-const deliverableFileName = document.getElementById("deliverable-file-name");
-const deliverableStatus = document.getElementById("deliverable-status");
-const deliverableDate = document.getElementById("deliverable-date");
-const deliverableComment = document.getElementById("deliverable-comment");
+      .alert{
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,.12);
+      }
+      .alert-info{ background: rgba(76,195,255,.08); color: var(--text); }
+      .alert-success{ background: rgba(43,213,118,.10); color: var(--text); }
+      .alert-warning{ background: rgba(255,193,7,.10); color: var(--text); }
+      .alert-danger{ background: rgba(220,53,69,.10); color: var(--text); }
 
-const rememberMeEl = document.getElementById("remember-me");
-const authFullnameEl = document.getElementById("auth-fullname");
-const authEmailEl = document.getElementById("auth-email");
-const authPassEl = document.getElementById("auth-password");
+      hr{ border-color: rgba(255,255,255,.12); }
 
-// State
-let categories = [];
-let categoryMap = {};
-let allProjects = [];
-let selectedProject = null;
-let isRefreshing = false;
-let fileIndexById = {};
+      #support-footer{
+        position: fixed;
+        right: 14px;
+        bottom: 10px;
+        font-size: 13px;
+        opacity: 0.92;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.12);
+        backdrop-filter: blur(8px);
+        z-index: 9999;
+        user-select: none;
+        pointer-events: none;
+        line-height: 1.25;
+        color: var(--text);
+      }
+    </style>
+  </head>
 
-function showAlert(message, type = "info", timeout = 6000) {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = `
-    <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-      ${message}
-      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Mbyll"></button>
+  <body>
+    <div class="container">
+
+      <!-- HEADER -->
+      <div class="nvp-header mb-3">
+        <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
+          <div class="brand">
+            <!-- LOGO (SVG) -->
+            <svg width="54" height="54" viewBox="0 0 54 54" xmlns="http://www.w3.org/2000/svg" aria-label="New Vision Project Logo">
+              <defs>
+                <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#4cc3ff"/>
+                  <stop offset="1" stop-color="#32d0a5"/>
+                </linearGradient>
+              </defs>
+              <rect x="4" y="4" width="46" height="46" rx="14" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/>
+              <path d="M27 14c7 0 13 4 13 9s-6 9-13 9-13-4-13-9 6-9 13-9Z" fill="none" stroke="url(#g1)" stroke-width="2" opacity=".95"/>
+              <path d="M27 18c5.2 0 9.8 3 9.8 6.5S32.2 31 27 31s-9.8-3-9.8-6.5S21.8 18 27 18Z" fill="none" stroke="rgba(234,244,255,.55)" stroke-width="1.6" opacity=".9"/>
+              <path d="M27 22c3.4 0 6.4 2 6.4 4.3S30.4 30.6 27 30.6s-6.4-2-6.4-4.3S23.6 22 27 22Z" fill="none" stroke="rgba(234,244,255,.35)" stroke-width="1.4" opacity=".9"/>
+              <path d="M27 16l4.8 10.6L27 31.2l-4.8-4.6L27 16Z" fill="url(#g1)" opacity=".9"/>
+              <circle cx="27" cy="27" r="2.2" fill="#06121b" stroke="rgba(255,255,255,.35)" />
+            </svg>
+
+            <div>
+              <h1 class="brand-title mb-0">New Vision Project</h1>
+              <div class="brand-sub">Databaza • Menaxhim punësh gjeodezike / topografike</div>
+              <div class="brand-badge">
+                <span>⦿</span>
+                <span>Dark Topografik Dashboard</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-end">
+            <div class="small muted">Përdoruesi</div>
+            <div class="fw-semibold" id="user-email-top">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="alert-area"></div>
+
+      <!-- AUTH -->
+      <section id="auth-section">
+        <div class="row justify-content-center">
+          <div class="col-lg-6 col-xl-5">
+            <div class="card">
+              <div class="card-body">
+                <h3 class="card-title mb-2">Hyr / Regjistrohu</h3>
+                <div class="muted small mb-3">
+                  Për regjistrim, <b>Emër Mbiemër</b> është i detyrueshëm dhe ruhet vetëm 1 herë.
+                </div>
+
+                <div class="mb-3">
+                  <label for="auth-fullname" class="form-label">Emër Mbiemër (vetëm për regjistrim)</label>
+                  <input type="text" class="form-control" id="auth-fullname" placeholder="p.sh. Eva Barjamaj" autocomplete="name" />
+                  <div class="muted small mt-1">Nëse je regjistruar 1 herë, s’ka nevojë ta shkruash më.</div>
+                </div>
+
+                <div class="mb-3">
+                  <label for="auth-email" class="form-label">Email</label>
+                  <input type="email" class="form-control" id="auth-email" placeholder="p.sh. emri@domain.com" autocomplete="email" />
+                </div>
+
+                <div class="mb-2">
+                  <label for="auth-password" class="form-label">Fjalëkalimi</label>
+                  <input type="password" class="form-control" id="auth-password" placeholder="Shkruaj fjalëkalimin" autocomplete="current-password" />
+                </div>
+
+                <div class="form-check my-3">
+                  <input class="form-check-input" type="checkbox" id="remember-me" checked />
+                  <label class="form-check-label" for="remember-me">Mbaje mend hyrjen</label>
+                </div>
+
+                <div class="d-flex gap-2">
+                  <button type="button" id="login-btn" class="btn btn-primary w-50">Hyr</button>
+                  <button type="button" id="signup-btn" class="btn btn-outline-primary w-50">Regjistrohu</button>
+                </div>
+
+                <div class="small muted mt-3">
+                  Nëse butonat nuk punojnë: Console (F12) dhe kontrollo <span class="mono">SUPABASE_URL</span> & <span class="mono">SUPABASE_ANON_KEY</span>.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- APP -->
+      <section id="app-section" class="hidden">
+        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-3">
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#projectModal">+ Hap punë të re</button>
+            <button type="button" id="refresh-btn" class="btn btn-outline-primary">Rifresko</button>
+          </div>
+          <button type="button" id="logout-btn" class="btn btn-outline-secondary">Dil</button>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <div class="card card-kpi">
+              <div class="card-body">
+                <div class="muted">Punë / Projekte</div>
+                <div class="display-6" id="kpi-projects">0</div>
+                <div class="small muted">Total i projekteve</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card card-kpi">
+              <div class="card-body">
+                <div class="muted">Materiale</div>
+                <div class="display-6" id="kpi-files">0</div>
+                <div class="small muted">Total i materialeve</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card card-kpi">
+              <div class="card-body">
+                <div class="muted">Aktivitete (24h)</div>
+                <div class="display-6" id="kpi-activity">0</div>
+                <div class="small muted">Veprimet e fundit</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-lg-7">
+            <div class="card">
+              <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                  <h5 class="mb-0">Lista e punëve</h5>
+                  <div class="d-flex gap-2 flex-wrap">
+                    <input id="search-input" class="form-control" placeholder="Kërko sipas emrit..." style="min-width: 220px;" />
+                    <select id="filter-category" class="form-select" style="min-width: 220px;">
+                      <option value="">Të gjitha kategoritë</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="table table-striped table-bordered align-middle mb-0" id="projects-table">
+                    <thead>
+                      <tr>
+                        <th>Emri</th>
+                        <th>Kategoria</th>
+                        <th>Vendndodhja</th>
+                        <th>Krijuar</th>
+                        <th>Hap</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+
+                <div class="small muted mt-2">Hap një projekt për të parë materialet të organizuara në seksione.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-lg-5">
+            <div class="card">
+              <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                  <div>
+                    <h5 class="mb-1">Workspace i Projektit</h5>
+                    <div class="small muted" id="panel-hint">Zgjidh një projekt nga lista.</div>
+                  </div>
+                  <div class="text-end">
+                    <div class="small muted">Projekt ID</div>
+                    <div class="mono small" id="panel-project-id">—</div>
+                  </div>
+                </div>
+
+                <hr />
+
+                <div id="panel-content" class="hidden">
+                  <div class="mb-2">
+                    <div class="muted small">Emri</div>
+                    <div class="fw-semibold" id="panel-project-name">—</div>
+                  </div>
+
+                  <div class="mb-2 d-flex gap-2 flex-wrap align-items-center">
+                    <span class="chip"><span class="muted">Kategoria:</span> <span id="panel-project-category">—</span></span>
+                    <span class="chip"><span class="muted">Vendndodhja:</span> <span id="panel-project-location">—</span></span>
+                  </div>
+
+                  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
+                    <div class="fw-semibold">Seksionet</div>
+                    <div class="d-flex gap-2">
+                      <button type="button" id="refresh-files-btn" class="btn btn-sm btn-outline-secondary">Rifresko materiale</button>
+                      <button type="button" id="refresh-activity-btn" class="btn btn-sm btn-outline-secondary">Rifresko aktivitet</button>
+                    </div>
+                  </div>
+
+                  <div class="small muted mt-1">Shënim: Pastrimi automatik funksionon me serverin e pastrimit (online).</div>
+
+                  <div class="accordion mt-3" id="sectionsAccordion">
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hRaw">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#cRaw">
+                          01 - Pika (RAW) (.csv / .idx)
+                        </button>
+                      </h2>
+                      <div id="cRaw" class="accordion-collapse collapse show" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">Ngarko skedarët origjinalë nga total station/GPS.</div>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                              <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="auto-clean-toggle" checked disabled>
+                                <label class="form-check-label small" for="auto-clean-toggle">Pastrimi automatik aktiv (online)</label>
+                              </div>
+                              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="raw_points">Ngarko</button>
+                            </div>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-raw_points"></ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hProc">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cProc">
+                          02 - Pika (PROCESSED) (.txt tab-delimited)
+                        </button>
+                      </h2>
+                      <div id="cProc" class="accordion-collapse collapse" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">Rezultatet e pastrimit të pikave.</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="processed_points">Ngarko</button>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-processed_points"></ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hDwgPlan">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cDwgPlan">
+                          03 - DWG Plane
+                        </button>
+                      </h2>
+                      <div id="cDwgPlan" class="accordion-collapse collapse" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">Plane / planimetri.</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_plane">Ngarko</button>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-dwg_plane"></ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hDwgViews">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cDwgViews">
+                          04 - DWG Pamje / Fasada
+                        </button>
+                      </h2>
+                      <div id="cDwgViews" class="accordion-collapse collapse" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">Pamje, fasada, detaje.</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_pamje">Ngarko</button>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-dwg_pamje"></ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hDwgFinal">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cDwgFinal">
+                          05 - DWG Finale
+                        </button>
+                      </h2>
+                      <div id="cDwgFinal" class="accordion-collapse collapse" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">DWG finale (mund të ketë më shumë se 1 version).</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_final">Ngarko</button>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-dwg_final"></ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hDeliver">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cDeliver">
+                          06 - Dorëzime (PDF / DWG / ZIP) + Status
+                        </button>
+                      </h2>
+                      <div id="cDeliver" class="accordion-collapse collapse" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">Dokumente/dorëzime ndaj klientit (me status, datë dhe koment).</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dorezime">Ngarko</button>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-dorezime"></ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="accordion-item">
+                      <h2 class="accordion-header" id="hSkica">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cSkica">
+                          07 - Skica / Materiale të tjera
+                        </button>
+                      </h2>
+                      <div id="cSkica" class="accordion-collapse collapse" data-bs-parent="#sectionsAccordion">
+                        <div class="accordion-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                            <div class="muted small">Çdo material tjetër i projektit.</div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="skica">Ngarko</button>
+                          </div>
+                          <ul class="list-group file-list mt-2" id="list-skica"></ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mt-3">
+                    <div class="fw-semibold">Aktivitetet (15 të fundit)</div>
+                    <ul class="list-group mt-2" id="activity-list"></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div><!-- row -->
+      </section>
+
+      <!-- Modal: Create Project -->
+      <div class="modal fade" id="projectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content" style="background: rgba(6,18,27,.92); border:1px solid rgba(255,255,255,.12); border-radius:18px;">
+            <div class="modal-header" style="border-color: rgba(255,255,255,.12);">
+              <h5 class="modal-title">Punë/Projekt i ri</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Mbyll"></button>
+            </div>
+
+            <div class="modal-body">
+              <form id="project-form">
+                <div class="mb-3">
+                  <label for="project-name" class="form-label">Emri i punës</label>
+                  <input type="text" class="form-control" id="project-name" required />
+                </div>
+
+                <div class="mb-3">
+                  <label for="project-category" class="form-label">Kategoria</label>
+                  <select class="form-select" id="project-category" required>
+                    <option value="">Duke ngarkuar...</option>
+                  </select>
+                </div>
+
+                <div class="mb-3">
+                  <label for="project-location" class="form-label">Vendndodhja</label>
+                  <input type="text" class="form-control" id="project-location" placeholder="p.sh. Tiranë, Shqipëri" />
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Ruaj</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Upload -->
+      <div class="modal fade" id="uploadModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content" style="background: rgba(6,18,27,.92); border:1px solid rgba(255,255,255,.12); border-radius:18px;">
+            <div class="modal-header" style="border-color: rgba(255,255,255,.12);">
+              <h5 class="modal-title">Ngarko materiale</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Mbyll"></button>
+            </div>
+
+            <div class="modal-body">
+              <form id="upload-form">
+                <input type="hidden" id="upload-project-id" />
+                <input type="hidden" id="upload-section" />
+
+                <div class="mb-2">
+                  <div class="small muted">Seksioni</div>
+                  <div class="fw-semibold" id="upload-section-label">—</div>
+                </div>
+
+                <div class="mb-3">
+                  <label for="upload-files" class="form-label">Zgjidh skedarë (mund të zgjedhësh shumë)</label>
+                  <input class="form-control" type="file" id="upload-files" multiple />
+                  <div class="small muted mt-1">P.sh: .csv .idx .dwg .pdf .zip .jpg</div>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Ngarko</button>
+              </form>
+
+              <div class="small muted mt-2">
+                Materialet ruhen në Storage (bucket <b>skica</b>) dhe regjistrohen në tabelën <b>skicat</b>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Deliverable Status -->
+      <div class="modal fade" id="deliverableModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content" style="background: rgba(6,18,27,.92); border:1px solid rgba(255,255,255,.12); border-radius:18px;">
+            <div class="modal-header" style="border-color: rgba(255,255,255,.12);">
+              <h5 class="modal-title">Status i Dorëzimit</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Mbyll"></button>
+            </div>
+            <div class="modal-body">
+              <form id="deliverable-form">
+                <input type="hidden" id="deliverable-file-id" />
+                <div class="mb-2">
+                  <div class="small muted">Skedari</div>
+                  <div class="fw-semibold" id="deliverable-file-name">—</div>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Status</label>
+                  <select class="form-select" id="deliverable-status">
+                    <option value="ne_pritje">Në pritje</option>
+                    <option value="dorezuar">Dorëzuar</option>
+                    <option value="anuluar">Anuluar</option>
+                  </select>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Data</label>
+                  <input type="datetime-local" class="form-control" id="deliverable-date" />
+                  <div class="small muted mt-1">Nëse lë bosh, ruan datën aktuale.</div>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Koment</label>
+                  <textarea class="form-control" id="deliverable-comment" rows="3" placeholder="p.sh. U dorëzua versioni final..."></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Ruaj statusin</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- container -->
+
+    <div id="support-footer">
+      Per ndihme kontakto Ing.Yllart Seferi<br/>
+      +355 67 556 2779<br/>
+      iart.se2@gmail.com
     </div>
-  `;
-  alertArea.appendChild(wrapper);
 
-  if (timeout) {
-    setTimeout(() => {
-      try {
-        const alertEl = wrapper.firstElementChild;
-        const inst = bootstrap.Alert.getInstance(alertEl);
-        if (inst) inst.close();
-        else alertEl.remove();
-      } catch {}
-    }, timeout);
-  }
-}
-
-function fmtDate(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString("sq-AL", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function cleanupBackdrops() {
-  try {
-    document.querySelectorAll(".modal-backdrop").forEach((b) => b?.remove?.());
-    if (!document.querySelector(".modal.show")) {
-      document.body.classList.remove("modal-open");
-      document.body.style.removeProperty("padding-right");
-    }
-  } catch {}
-}
-
-function clearPanel() {
-  selectedProject = null;
-  panelHint.textContent = "Zgjidh një projekt nga lista.";
-  panelProjectId.textContent = "—";
-  panelContent.classList.add("hidden");
-
-  Object.keys(SECTION_LABELS).forEach((sec) => {
-    const ul = document.getElementById(`list-${sec}`);
-    if (ul) ul.innerHTML = "";
-  });
-  activityList.innerHTML = "";
-}
-
-function buildCategoryMap() {
-  categoryMap = {};
-  (categories || []).forEach((c) => (categoryMap[String(c.id)] = c.name || `Kategori ${c.id}`));
-}
-
-// profile name
-async function getMyProfileName() {
-  const { data: userData } = await sup.auth.getUser();
-  const user = userData?.user;
-  if (!user?.id) return null;
-
-  const { data, error } = await sup.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
-  if (error) return null;
-
-  const nm = (data?.full_name || "").trim();
-  return nm || null;
-}
-
-async function setAppVisible(isLoggedIn, session) {
-  if (isLoggedIn) {
-    authSection.classList.add("hidden");
-    appSection.classList.remove("hidden");
-
-    let display = null;
-    try { display = await getMyProfileName(); } catch {}
-    userEmailTop.textContent = display || session?.user?.email || "—";
-  } else {
-    authSection.classList.remove("hidden");
-    appSection.classList.add("hidden");
-    userEmailTop.textContent = "—";
-    clearPanel();
-  }
-}
-
-async function logActivity(projectId, action, target = null) {
-  try {
-    const { data: userData } = await sup.auth.getUser();
-    const user = userData?.user;
-    if (!user) return;
-
-    await sup.from("activity_log").insert({
-      user_id: user.id,
-      project_id: projectId,
-      action,
-      target,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.warn("Activity log error:", e);
-  }
-}
-
-// download direct
-async function shkarkoNgaStorage(filePath) {
-  const fileName = (filePath || "").split("/").pop() || "skedar";
-  const { data, error } = await sup.storage.from(BUCKET).download(filePath);
-  if (error) throw error;
-
-  const blobUrl = URL.createObjectURL(data);
-  const a = document.createElement("a");
-  a.href = blobUrl;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(blobUrl);
-}
-
-// remember policy
-function applyRememberPolicy() {
-  const remember = rememberMeEl?.checked ?? true;
-  setRememberMe(remember);
-
-  if (!remember) {
-    window.addEventListener("beforeunload", () => {
-      try { sup.auth.signOut(); } catch {}
-    });
-  }
-}
-
-// SIGN UP (name locked)
-async function handleSignUp(e) {
-  e.preventDefault();
-
-  const email = (authEmailEl?.value || "").trim();
-  const password = authPassEl?.value || "";
-  const fullName = (authFullnameEl?.value || "").trim();
-
-  if (!email || !password) return showAlert("Plotëso email dhe fjalëkalimin.", "warning");
-  if (!fullName) return showAlert("Plotëso Emër Mbiemër (për regjistrim).", "warning");
-
-  try {
-    applyRememberPolicy();
-
-    const { data, error } = await sup.auth.signUp({ email, password });
-    if (error) throw error;
-
-    const userId = data?.user?.id;
-    if (userId) {
-      const { data: prof } = await sup.from("profiles").select("full_name").eq("id", userId).maybeSingle();
-      const existing = (prof?.full_name || "").trim();
-      if (!existing) {
-        const { error: pErr } = await sup.from("profiles").upsert({ id: userId, full_name: fullName });
-        if (pErr) console.warn("profiles upsert:", pErr);
-      }
-    }
-
-    showAlert("Regjistrimi u krye. Tani mund të hysh me email/fjalëkalim.", "success", 7000);
-    if (authFullnameEl) authFullnameEl.value = "";
-  } catch (err) {
-    showAlert(`Gabim në regjistrim: ${err.message}`, "danger", 9000);
-  }
-}
-
-async function handleLogin(e) {
-  e.preventDefault();
-  const email = (authEmailEl?.value || "").trim();
-  const password = authPassEl?.value || "";
-
-  if (!email || !password) return showAlert("Plotëso email dhe fjalëkalimin.", "warning");
-
-  try {
-    applyRememberPolicy();
-    const { error } = await sup.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    showAlert("U futët me sukses.", "success", 2500);
-  } catch (err) {
-    showAlert(`Gabim në hyrje: ${err.message}`, "danger", 9000);
-  }
-}
-
-async function handleLogout(e) {
-  e.preventDefault();
-  try {
-    const { error } = await sup.auth.signOut();
-    if (error) throw error;
-    showAlert("Dole nga sistemi.", "info", 2500);
-  } catch (err) {
-    showAlert(`Gabim në dalje: ${err.message}`, "danger", 9000);
-  }
-}
-
-// DATA
-async function loadCategories() {
-  try {
-    const { data, error } = await sup.from("project_categories").select("id,name").order("id", { ascending: true });
-    if (error) throw error;
-
-    categories = data || [];
-    buildCategoryMap();
-
-    // project modal select
-    projectCategorySelect.innerHTML = "";
-    if (!categories.length) {
-      projectCategorySelect.innerHTML = `<option value="">Nuk ka kategori</option>`;
-    } else {
-      categories.forEach((c) => {
-        const opt = document.createElement("option");
-        opt.value = String(c.id);
-        opt.textContent = c.name;
-        projectCategorySelect.appendChild(opt);
-      });
-    }
-
-    // filter select
-    const current = filterCategory.value || "";
-    filterCategory.innerHTML = `<option value="">Të gjitha kategoritë</option>`;
-    categories.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = String(c.id);
-      opt.textContent = c.name;
-      filterCategory.appendChild(opt);
-    });
-    filterCategory.value = current;
-
-  } catch (e) {
-    console.error("loadCategories failed:", e);
-
-    // mos e lër UI në "Duke ngarkuar..."
-    projectCategorySelect.innerHTML = `<option value="">(Gabim kategori)</option>`;
-    filterCategory.innerHTML = `<option value="">(Gabim kategori)</option>`;
-
-    showAlert(
-      `Kategoritë nuk u ngarkuan. Shkak tipik: RLS/Permissions te tabela <b>project_categories</b>.<br/>Detaj: ${e.message}`,
-      "warning",
-      12000
-    );
-
-    // rëndësi: mos e "throw" që app të vazhdojë me projektet/materialet
-    categories = [];
-    buildCategoryMap();
-  }
-}
-
-async function loadProjects() {
-  const { data, error } = await sup
-    .from("projects")
-    .select("id,name,location,category_id,created_by,created_at")
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-  allProjects = data || [];
-  renderProjectsTable();
-}
-
-async function loadKPIs() {
-  kpiProjects.textContent = String(allProjects.length);
-
-  const { count: filesCount } = await sup.from("skicat").select("*", { count: "exact", head: true });
-  if (typeof filesCount === "number") kpiFiles.textContent = String(filesCount);
-
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count: actCount } = await sup.from("activity_log").select("*", { count: "exact", head: true }).gte("timestamp", since);
-  if (typeof actCount === "number") kpiActivity.textContent = String(actCount);
-}
-
-// Projects table
-function renderProjectsTable() {
-  const q = (searchInput.value || "").toLowerCase().trim();
-  const cat = filterCategory.value || "";
-
-  let filtered = [...allProjects];
-  if (cat) filtered = filtered.filter((p) => String(p.category_id) === String(cat));
-  if (q) filtered = filtered.filter((p) => (p.name || "").toLowerCase().includes(q));
-
-  projectsTableBody.innerHTML = "";
-
-  if (!filtered.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 5;
-    td.className = "text-center";
-    td.textContent = "Nuk u gjet asnjë punë sipas filtrave.";
-    tr.appendChild(td);
-    projectsTableBody.appendChild(tr);
-    return;
-  }
-
-  filtered.forEach((p) => {
-    const tr = document.createElement("tr");
-
-    const tdName = document.createElement("td");
-    tdName.textContent = p.name || "Pa emër";
-    tr.appendChild(tdName);
-
-    const tdCat = document.createElement("td");
-    tdCat.textContent = categoryMap[String(p.category_id)] || `ID ${p.category_id || "—"}`;
-    tr.appendChild(tdCat);
-
-    const tdLoc = document.createElement("td");
-    tdLoc.textContent = p.location || "—";
-    tr.appendChild(tdLoc);
-
-    const tdCreated = document.createElement("td");
-    tdCreated.textContent = fmtDate(p.created_at);
-    tr.appendChild(tdCreated);
-
-    const tdOpen = document.createElement("td");
-    const btn = document.createElement("button");
-    btn.className = "btn btn-sm btn-outline-primary";
-    btn.textContent = "Hap";
-    btn.addEventListener("click", () => setPanel(p));
-    tdOpen.appendChild(btn);
-    tr.appendChild(tdOpen);
-
-    projectsTableBody.appendChild(tr);
-  });
-}
-
-// Create project
-async function handleCreateProject(e) {
-  e.preventDefault();
-  const name = document.getElementById("project-name").value.trim();
-  const categoryId = projectCategorySelect.value;
-  const location = document.getElementById("project-location").value.trim();
-
-  if (!name || !categoryId) return showAlert("Plotëso fushat e detyrueshme (Emri + Kategoria).", "warning", 6000);
-
-  try {
-    const { data: userData } = await sup.auth.getUser();
-    const user = userData?.user;
-
-    const payload = {
-      name,
-      location: location || null,
-      category_id: Number(categoryId),
-      created_by: user?.id || null,
-      created_at: new Date().toISOString(),
-    };
-
-    const { data, error } = await sup.from("projects").insert(payload).select("id");
-    if (error) throw error;
-
-    const projectId = data?.[0]?.id;
-    await logActivity(projectId, "u krijua puna", "projects");
-
-    showAlert("Puna u krijua me sukses.", "success", 3000);
-
-    bootstrap.Modal.getInstance(document.getElementById("projectModal"))?.hide();
-    cleanupBackdrops();
-    projectForm.reset();
-    await hardRefresh();
-  } catch (err) {
-    showAlert(`Gabim gjatë krijimit: ${err.message}`, "danger", 9000);
-  }
-}
-
-// Workspace
-async function setPanel(project) {
-  selectedProject = project;
-  panelHint.textContent = "Workspace i projektit është aktiv.";
-  panelProjectId.textContent = project.id;
-  panelContent.classList.remove("hidden");
-
-  panelProjectName.textContent = project.name || "Pa emër";
-  panelProjectCategory.textContent = categoryMap[String(project.category_id)] || `ID ${project.category_id || "—"}`;
-  panelProjectLocation.textContent = project.location || "—";
-
-  await loadAllFilesForProject(project.id);
-  await loadProjectActivity(project.id);
-}
-
-function escapeHtml(str) {
-  return String(str || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function statusChip(status, deliveredAt) {
-  const st = status || "ne_pritje";
-  if (st === "dorezuar") return `<span class="chip ok">Dorëzuar • ${escapeHtml(fmtDate(deliveredAt))}</span>`;
-  if (st === "anuluar") return `<span class="chip gray">Anuluar</span>`;
-  return `<span class="chip warn">Në pritje</span>`;
-}
-
-// Files list
-async function loadAllFilesForProject(projectId) {
-  fileIndexById = {};
-  Object.keys(SECTION_LABELS).forEach((sec) => {
-    const ul = document.getElementById(`list-${sec}`);
-    if (ul) ul.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
-  });
-
-  const { data, error } = await sup
-    .from("skicat")
-    .select("id,project_id,file_path,original_name,file_type,section,uploaded_at,uploaded_by,deliverable_status,delivered_at,deliverable_comment")
-    .eq("project_id", projectId)
-    .order("uploaded_at", { ascending: false });
-
-  if (error) {
-    showAlert(`Gabim në ngarkimin e materialeve: ${error.message}`, "danger", 9000);
-    Object.keys(SECTION_LABELS).forEach((sec) => {
-      const ul = document.getElementById(`list-${sec}`);
-      if (ul) ul.innerHTML = `<li class="list-group-item text-danger">Gabim: ${error.message}</li>`;
-    });
-    return;
-  }
-
-  const grouped = {};
-  Object.keys(SECTION_LABELS).forEach((sec) => (grouped[sec] = []));
-  (data || []).forEach((f) => {
-    fileIndexById[String(f.id)] = f;
-    const sec = f.section || "skica";
-    if (!grouped[sec]) grouped[sec] = [];
-    grouped[sec].push(f);
-  });
-
-  Object.entries(grouped).forEach(([sec, files]) => {
-    const ul = document.getElementById(`list-${sec}`);
-    if (!ul) return;
-
-    if (!files.length) {
-      ul.innerHTML = `<li class="list-group-item text-muted">Nuk ka materiale.</li>`;
-      return;
-    }
-
-    ul.innerHTML = "";
-    files.forEach((f) => ul.appendChild(renderFileRow(sec, f)));
-  });
-}
-
-function renderFileRow(section, f) {
-  const li = document.createElement("li");
-  li.className = "list-group-item";
-
-  const filename = f.original_name || (f.file_path || "").split("/").pop() || "file";
-  const left = document.createElement("div");
-  left.className = "file-meta";
-
-  let extra = "";
-  if (DELIVERABLE_SECTIONS.has(section)) {
-    extra = `<div class="mt-1">${statusChip(f.deliverable_status, f.delivered_at)}
-      ${f.deliverable_comment ? `<div class="small text-muted mt-1">Koment: ${escapeHtml(f.deliverable_comment)}</div>` : ""}</div>`;
-  }
-
-  left.innerHTML = `
-    <div class="file-name">${escapeHtml(filename)}</div>
-    <div class="small text-muted">${escapeHtml(f.file_type || "file")} • ${fmtDate(f.uploaded_at)}</div>
-    ${extra}
-  `;
-
-  const right = document.createElement("div");
-  right.className = "d-flex gap-2 flex-wrap";
-
-  const btnDl = document.createElement("button");
-  btnDl.className = "btn btn-sm btn-outline-success";
-  btnDl.textContent = "Shkarko";
-  btnDl.addEventListener("click", async () => {
-    try { await shkarkoNgaStorage(f.file_path); }
-    catch (e) { showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000); }
-  });
-  right.appendChild(btnDl);
-
-  if (DELIVERABLE_SECTIONS.has(section)) {
-    const btnSt = document.createElement("button");
-    btnSt.className = "btn btn-sm btn-outline-primary";
-    btnSt.textContent = "Status";
-    btnSt.addEventListener("click", () => openDeliverableModal(f.id));
-    right.appendChild(btnSt);
-  }
-
-  li.appendChild(left);
-  li.appendChild(right);
-  return li;
-}
-
-// Activity (me emra)
-async function loadProjectActivity(projectId) {
-  activityList.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
-
-  const { data, error } = await sup
-    .from("activity_log")
-    .select("id,action,target,timestamp,user_id, profiles(full_name)")
-    .eq("project_id", projectId)
-    .order("timestamp", { ascending: false })
-    .limit(15);
-
-  if (error) {
-    activityList.innerHTML = `<li class="list-group-item text-danger">Gabim: ${error.message}</li>`;
-    return;
-  }
-
-  if (!data || !data.length) {
-    activityList.innerHTML = `<li class="list-group-item text-muted">Nuk ka aktivitete për këtë projekt.</li>`;
-    return;
-  }
-
-  activityList.innerHTML = "";
-  data.forEach((a) => {
-    const li = document.createElement("li");
-    li.className = "list-group-item";
-
-    const prof = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
-    const emri = (prof?.full_name || "").trim() || "Përdorues";
-
-    li.innerHTML = `<div class="fw-semibold">${escapeHtml(a.action || "veprim")}</div>
-                    <div class="small text-muted">${escapeHtml(emri)} • ${escapeHtml(a.target || "")} • ${fmtDate(a.timestamp)}</div>`;
-    activityList.appendChild(li);
-  });
-}
-
-// Upload modal
-uploadModalEl.addEventListener("show.bs.modal", (evt) => {
-  const btn = evt.relatedTarget;
-  const section = btn?.getAttribute?.("data-section") || "skica";
-
-  if (!selectedProject?.id) {
-    showAlert("Zgjidh një projekt (Hap) para se të ngarkosh materiale.", "warning", 7000);
-    return;
-  }
-
-  uploadProjectIdInput.value = selectedProject.id;
-  uploadSectionInput.value = section;
-  uploadSectionLabel.textContent = SECTION_LABELS[section] || section;
-  uploadFilesInput.value = "";
-});
-
-async function tryProcessorHealth() {
-  try {
-    const r = await fetch(`${PROCESSOR_BASE}/health`, { method: "GET" });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function processWithProcessor(file) {
-  const fd = new FormData();
-  fd.append("file", file, file.name);
-
-  const resp = await fetch(`${PROCESSOR_BASE}/process`, { method: "POST", body: fd });
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => "");
-    throw new Error(`Serveri i pastrimit error (${resp.status}): ${t || "n/a"}`);
-  }
-  return await resp.blob();
-}
-
-async function uploadOne(projectId, section, file) {
-  const { data: userData } = await sup.auth.getUser();
-  const user = userData?.user;
-
-  const ext = extOf(file.name);
-  const ftype = fileTypeFromExt(ext);
-
-  const safeName = file.name.replaceAll(" ", "_");
-  const path = `${projectId}/${section}/${Date.now()}_${rand6()}_${safeName}`;
-
-  const { error: upErr } = await sup.storage.from(BUCKET).upload(path, file, { upsert: false });
-  if (upErr) throw upErr;
-
-  const baseRow = {
-    project_id: projectId,
-    file_path: path,
-    original_name: file.name,
-    file_type: ftype,
-    section,
-    uploaded_by: user?.id || null,
-    uploaded_at: new Date().toISOString(),
-  };
-
-  if (DELIVERABLE_SECTIONS.has(section)) {
-    baseRow.deliverable_status = "ne_pritje";
-    baseRow.delivered_at = null;
-    baseRow.deliverable_comment = null;
-  }
-
-  const { error: insErr } = await sup.from("skicat").insert(baseRow);
-  if (insErr) throw insErr;
-
-  return { path, ftype };
-}
-
-async function handleUpload(e) {
-  e.preventDefault();
-
-  const projectId = uploadProjectIdInput.value;
-  const section = uploadSectionInput.value || "skica";
-  const files = Array.from(uploadFilesInput.files || []);
-
-  if (!projectId) return showAlert("Gabim: nuk u gjet projekt ID.", "danger");
-  if (!files.length) return showAlert("Zgjidh të paktën një skedar.", "warning");
-
-  const canAutoClean = section === "raw_points";
-  let processorOk = false;
-  if (canAutoClean) processorOk = await tryProcessorHealth();
-
-  showAlert(`Po ngarkohen ${files.length} skedar(ë)...`, "info", 2500);
-
-  let ok = 0, fail = 0;
-
-  for (const f of files) {
-    try {
-      await uploadOne(projectId, section, f);
-      ok++;
-      await logActivity(projectId, `u ngarkua ${f.name}`, `storage/${BUCKET}/${section}`);
-
-      if (canAutoClean && processorOk && ["csv", "idx"].includes(extOf(f.name))) {
-        try {
-          const cleanedBlob = await processWithProcessor(f);
-          const cleanedName = f.name.replace(/\.(csv|idx)$/i, "") + "_clean.txt";
-          const cleanedFile = new File([cleanedBlob], cleanedName, { type: "text/plain" });
-
-          await uploadOne(projectId, "processed_points", cleanedFile);
-          await logActivity(projectId, `u krijua ${cleanedName}`, `auto-clean`);
-          showAlert(`U pastrua automatikisht: ${cleanedName}`, "success", 3500);
-        } catch (pe) {
-          showAlert(`Pastrim automatik dështoi për ${f.name}: ${pe.message}`, "warning", 9000);
-        }
-      }
-    } catch (err) {
-      fail++;
-      showAlert(`Dështoi: ${f.name} — ${err.message}`, "danger", 9000);
-    }
-  }
-
-  showAlert(`Ngarkimi përfundoi: ${ok} sukses, ${fail} dështime.`, fail ? "warning" : "success", 6000);
-
-  bootstrap.Modal.getInstance(uploadModalEl)?.hide();
-  cleanupBackdrops();
-
-  await loadAllFilesForProject(projectId);
-  await loadKPIs();
-  if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
-}
-uploadForm.addEventListener("submit", handleUpload);
-
-// Deliverable modal
-function toDatetimeLocalValue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function openDeliverableModal(fileId) {
-  const f = fileIndexById[String(fileId)];
-  if (!f) return showAlert("Gabim: file nuk u gjet.", "danger");
-
-  deliverableFileId.value = String(fileId);
-  deliverableFileName.textContent = f.original_name || (f.file_path || "").split("/").pop() || "file";
-  deliverableStatus.value = f.deliverable_status || "ne_pritje";
-  deliverableDate.value = toDatetimeLocalValue(f.delivered_at);
-  deliverableComment.value = f.deliverable_comment || "";
-
-  new bootstrap.Modal(deliverableModalEl).show();
-}
-
-deliverableForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  const fileId = deliverableFileId.value;
-  const st = deliverableStatus.value || "ne_pritje";
-  const comment = (deliverableComment.value || "").trim() || null;
-
-  let deliveredAt = null;
-  if (st === "dorezuar") {
-    deliveredAt = deliverableDate.value ? new Date(deliverableDate.value).toISOString() : new Date().toISOString();
-  }
-
-  try {
-    const { error } = await sup
-      .from("skicat")
-      .update({ deliverable_status: st, delivered_at: deliveredAt, deliverable_comment: comment })
-      .eq("id", fileId);
-
-    if (error) throw error;
-
-    if (selectedProject?.id) await logActivity(selectedProject.id, `u ndryshua statusi: ${st}`, `skicat/${fileId}`);
-
-    showAlert("Statusi u ruajt.", "success", 2500);
-
-    bootstrap.Modal.getInstance(deliverableModalEl)?.hide();
-    cleanupBackdrops();
-
-    if (selectedProject?.id) {
-      await loadAllFilesForProject(selectedProject.id);
-      await loadProjectActivity(selectedProject.id);
-    }
-  } catch (err) {
-    showAlert(`Gabim: ${err.message}`, "danger", 9000);
-  }
-});
-
-// SAFE refresh (kjo është pjesa kryesore që s’të ngec më “loading”)
-async function hardRefresh() {
-  if (isRefreshing) return;
-  isRefreshing = true;
-
-  try {
-    const results = await Promise.allSettled([
-      loadCategories(),
-      loadProjects(),
-      loadKPIs(),
-    ]);
-
-    const errs = results
-      .filter(r => r.status === "rejected")
-      .map(r => r.reason?.message || String(r.reason));
-
-    if (errs.length) {
-      console.error("Refresh errors:", errs);
-      showAlert("Disa të dhëna nuk u ngarkuan. Provo Dil/Hyr ose kontrollo RLS.", "warning", 9000);
-    }
-
-    if (selectedProject?.id) {
-      await Promise.allSettled([
-        loadAllFilesForProject(selectedProject.id),
-        loadProjectActivity(selectedProject.id),
-      ]);
-    }
-
-    try {
-      const { data } = await sup.auth.getSession();
-      if (data?.session) await setAppVisible(true, data.session);
-    } catch {}
-  } finally {
-    isRefreshing = false;
-  }
-}
-
-// INIT
-async function init() {
-  if (rememberMeEl) rememberMeEl.checked = getRememberMe();
-
-  const { data } = await sup.auth.getSession();
-  const session = data?.session;
-
-  await setAppVisible(!!session, session);
-
-  if (session) await hardRefresh();
-}
-
-sup.auth.onAuthStateChange(async (_event, session) => {
-  await setAppVisible(!!session, session);
-  if (session) await hardRefresh();
-  else clearPanel();
-});
-
-// Events
-signupBtn.addEventListener("click", handleSignUp);
-loginBtn.addEventListener("click", handleLogin);
-logoutBtn.addEventListener("click", handleLogout);
-
-refreshBtn.addEventListener("click", hardRefresh);
-searchInput.addEventListener("input", renderProjectsTable);
-filterCategory.addEventListener("change", renderProjectsTable);
-
-projectForm.addEventListener("submit", handleCreateProject);
-
-refreshFilesBtn.addEventListener("click", async () => {
-  if (selectedProject?.id) await loadAllFilesForProject(selectedProject.id);
-});
-refreshActivityBtn.addEventListener("click", async () => {
-  if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
-});
-
-init();
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
