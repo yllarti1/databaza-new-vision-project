@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>Databaza New Vision Project</title>
 
     <link
@@ -44,7 +45,6 @@
       .muted{ color: var(--muted) !important; }
       .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 
-      /* Header */
       .nvp-header{
         border: 1px solid var(--line);
         background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
@@ -99,7 +99,6 @@
         margin-top: 6px;
       }
 
-      /* Cards */
       .card{
         background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
         border: 1px solid var(--line);
@@ -109,7 +108,6 @@
       }
       .card .card-body{ padding: 16px; }
 
-      /* Buttons */
       .btn{ border-radius: 14px; font-weight: 700; }
       .btn-primary{
         background: linear-gradient(90deg, var(--accent2), var(--accent));
@@ -141,7 +139,6 @@
         color: var(--text);
       }
 
-      /* Inputs */
       .form-control, .form-select{
         background: rgba(255,255,255,.06);
         border: 1px solid var(--line);
@@ -160,7 +157,6 @@
         border: 1px solid var(--line);
       }
 
-      /* Table */
       .table{
         --bs-table-bg: transparent;
         --bs-table-striped-bg: rgba(255,255,255,.04);
@@ -173,11 +169,9 @@
         border-bottom: 1px solid rgba(255,255,255,.10);
       }
 
-      /* KPI */
       .card-kpi{ min-height: 112px; }
       .display-6{ font-weight: 950; }
 
-      /* Accordion */
       .accordion-item{
         border: 1px solid rgba(255,255,255,.10);
         border-radius: 16px !important;
@@ -198,7 +192,6 @@
         box-shadow: 0 0 0 .2rem rgba(76,195,255,.12);
       }
 
-      /* Files */
       .file-list .list-group-item{
         background: rgba(255,255,255,.03);
         border-color: rgba(255,255,255,.10);
@@ -218,7 +211,6 @@
       }
       @media (min-width: 992px) { .file-name { max-width: 280px; } }
 
-      /* Alerts (dark-friendly) */
       .alert{
         border-radius: 16px;
         border: 1px solid rgba(255,255,255,.12);
@@ -230,7 +222,6 @@
 
       hr{ border-color: rgba(255,255,255,.12); }
 
-      /* Support footer (siç e kërkove) */
       #support-footer{
         position: fixed;
         right: 14px;
@@ -248,9 +239,6 @@
         line-height: 1.25;
         color: var(--text);
       }
-
-      /* Small improvements */
-      .rounded-xxl{ border-radius: 22px; }
     </style>
   </head>
 
@@ -261,7 +249,7 @@
       <div class="nvp-header mb-3">
         <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
           <div class="brand">
-            <!-- LOGO (SVG) - modern/topografik -->
+            <!-- LOGO (SVG) -->
             <svg width="54" height="54" viewBox="0 0 54 54" xmlns="http://www.w3.org/2000/svg" aria-label="New Vision Project Logo">
               <defs>
                 <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
@@ -270,12 +258,9 @@
                 </linearGradient>
               </defs>
               <rect x="4" y="4" width="46" height="46" rx="14" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/>
-              <!-- Contour rings -->
               <path d="M27 14c7 0 13 4 13 9s-6 9-13 9-13-4-13-9 6-9 13-9Z" fill="none" stroke="url(#g1)" stroke-width="2" opacity=".95"/>
               <path d="M27 18c5.2 0 9.8 3 9.8 6.5S32.2 31 27 31s-9.8-3-9.8-6.5S21.8 18 27 18Z" fill="none" stroke="rgba(234,244,255,.55)" stroke-width="1.6" opacity=".9"/>
               <path d="M27 22c3.4 0 6.4 2 6.4 4.3S30.4 30.6 27 30.6s-6.4-2-6.4-4.3S23.6 22 27 22Z" fill="none" stroke="rgba(234,244,255,.35)" stroke-width="1.4" opacity=".9"/>
-
-              <!-- Compass needle -->
               <path d="M27 16l4.8 10.6L27 31.2l-4.8-4.6L27 16Z" fill="url(#g1)" opacity=".9"/>
               <circle cx="27" cy="27" r="2.2" fill="#06121b" stroke="rgba(255,255,255,.35)" />
             </svg>
@@ -292,7 +277,6 @@
 
           <div class="text-end">
             <div class="small muted">Përdoruesi</div>
-            <!-- app.js do ta zëvendësojë me full_name (nëse ekziston), përndryshe email -->
             <div class="fw-semibold" id="user-email-top">—</div>
           </div>
         </div>
@@ -308,62 +292,37 @@
               <div class="card-body">
                 <h3 class="card-title mb-2">Hyr / Regjistrohu</h3>
                 <div class="muted small mb-3">
-                  Hyr me email + fjalëkalim. Për regjistrim, <b>Emër Mbiemër</b> është i detyrueshëm dhe ruhet një herë.
+                  Për regjistrim, <b>Emër Mbiemër</b> është i detyrueshëm dhe ruhet vetëm 1 herë.
                 </div>
 
-                <!-- Full name (vetëm për Sign Up - por mund të lihet bosh për Login) -->
                 <div class="mb-3">
                   <label for="auth-fullname" class="form-label">Emër Mbiemër (vetëm për regjistrim)</label>
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="auth-fullname"
-                    placeholder="p.sh. Eva Barjamaj"
-                    autocomplete="name"
-                  />
-                  <div class="muted small mt-1">
-                    Nëse e ke regjistruar një herë, nuk ke nevojë ta shkruash më.
-                  </div>
+                  <input type="text" class="form-control" id="auth-fullname" placeholder="p.sh. Eva Barjamaj" autocomplete="name" />
+                  <div class="muted small mt-1">Nëse je regjistruar 1 herë, s’ka nevojë ta shkruash më.</div>
                 </div>
 
                 <div class="mb-3">
                   <label for="auth-email" class="form-label">Email</label>
-                  <input
-                    type="email"
-                    class="form-control"
-                    id="auth-email"
-                    placeholder="p.sh. emri@domain.com"
-                    autocomplete="email"
-                  />
+                  <input type="email" class="form-control" id="auth-email" placeholder="p.sh. emri@domain.com" autocomplete="email" />
                 </div>
 
                 <div class="mb-2">
                   <label for="auth-password" class="form-label">Fjalëkalimi</label>
-                  <input
-                    type="password"
-                    class="form-control"
-                    id="auth-password"
-                    placeholder="Shkruaj fjalëkalimin"
-                    autocomplete="current-password"
-                  />
+                  <input type="password" class="form-control" id="auth-password" placeholder="Shkruaj fjalëkalimin" autocomplete="current-password" />
                 </div>
 
-                <!-- Remember me (UI - do e lidhim në app.js nëse do) -->
                 <div class="form-check my-3">
-                  <input class="form-check-input" type="checkbox" value="" id="remember-me" checked />
-                  <label class="form-check-label" for="remember-me">
-                    Mbaje mend hyrjen (Remember me)
-                  </label>
+                  <input class="form-check-input" type="checkbox" id="remember-me" checked />
+                  <label class="form-check-label" for="remember-me">Mbaje mend hyrjen</label>
                 </div>
 
                 <div class="d-flex gap-2">
-                  <button id="login-btn" class="btn btn-primary w-50">Hyr</button>
-                  <button id="signup-btn" class="btn btn-outline-primary w-50">Regjistrohu</button>
+                  <button type="button" id="login-btn" class="btn btn-primary w-50">Hyr</button>
+                  <button type="button" id="signup-btn" class="btn btn-outline-primary w-50">Regjistrohu</button>
                 </div>
 
                 <div class="small muted mt-3">
-                  Nëse butonat nuk punojnë: kontrollo Console (F12) dhe sigurohu që ke vendosur saktë
-                  <span class="mono">SUPABASE_URL</span> (fillon me https://) dhe <span class="mono">SUPABASE_ANON_KEY</span>.
+                  Nëse butonat nuk punojnë: Console (F12) dhe kontrollo <span class="mono">SUPABASE_URL</span> & <span class="mono">SUPABASE_ANON_KEY</span>.
                 </div>
               </div>
             </div>
@@ -375,10 +334,10 @@
       <section id="app-section" class="hidden">
         <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-3">
           <div class="d-flex gap-2 flex-wrap">
-            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#projectModal">+ Hap punë të re</button>
-            <button id="refresh-btn" class="btn btn-outline-primary">Rifresko</button>
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#projectModal">+ Hap punë të re</button>
+            <button type="button" id="refresh-btn" class="btn btn-outline-primary">Rifresko</button>
           </div>
-          <button id="logout-btn" class="btn btn-outline-secondary">Dil</button>
+          <button type="button" id="logout-btn" class="btn btn-outline-secondary">Dil</button>
         </div>
 
         <div class="row g-3 mb-3">
@@ -412,7 +371,6 @@
         </div>
 
         <div class="row g-3">
-          <!-- Left -->
           <div class="col-lg-7">
             <div class="card">
               <div class="card-body">
@@ -441,14 +399,11 @@
                   </table>
                 </div>
 
-                <div class="small muted mt-2">
-                  Hap një projekt për të parë materialet të organizuara në seksione (pika, DWG, dorëzime, etj.).
-                </div>
+                <div class="small muted mt-2">Hap një projekt për të parë materialet të organizuara në seksione.</div>
               </div>
             </div>
           </div>
 
-          <!-- Right -->
           <div class="col-lg-5">
             <div class="card">
               <div class="card-body">
@@ -479,14 +434,12 @@
                   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-3">
                     <div class="fw-semibold">Seksionet</div>
                     <div class="d-flex gap-2">
-                      <button id="refresh-files-btn" class="btn btn-sm btn-outline-secondary">Rifresko materiale</button>
-                      <button id="refresh-activity-btn" class="btn btn-sm btn-outline-secondary">Rifresko aktivitet</button>
+                      <button type="button" id="refresh-files-btn" class="btn btn-sm btn-outline-secondary">Rifresko materiale</button>
+                      <button type="button" id="refresh-activity-btn" class="btn btn-sm btn-outline-secondary">Rifresko aktivitet</button>
                     </div>
                   </div>
 
-                  <div class="small muted mt-1">
-                    Shënim: “Pastrimi automatik” funksionon me serverin e pastrimit (online).
-                  </div>
+                  <div class="small muted mt-1">Shënim: Pastrimi automatik funksionon me serverin e pastrimit (online).</div>
 
                   <div class="accordion mt-3" id="sectionsAccordion">
                     <div class="accordion-item">
@@ -504,7 +457,7 @@
                                 <input class="form-check-input" type="checkbox" id="auto-clean-toggle" checked disabled>
                                 <label class="form-check-label small" for="auto-clean-toggle">Pastrimi automatik aktiv (online)</label>
                               </div>
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="raw_points">Ngarko</button>
+                              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="raw_points">Ngarko</button>
                             </div>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-raw_points"></ul>
@@ -522,9 +475,7 @@
                         <div class="accordion-body">
                           <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                             <div class="muted small">Rezultatet e pastrimit të pikave.</div>
-                            <div class="d-flex gap-2 flex-wrap">
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="processed_points">Ngarko</button>
-                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="processed_points">Ngarko</button>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-processed_points"></ul>
                         </div>
@@ -541,9 +492,7 @@
                         <div class="accordion-body">
                           <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                             <div class="muted small">Plane / planimetri.</div>
-                            <div class="d-flex gap-2 flex-wrap">
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_plane">Ngarko</button>
-                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_plane">Ngarko</button>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-dwg_plane"></ul>
                         </div>
@@ -560,9 +509,7 @@
                         <div class="accordion-body">
                           <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                             <div class="muted small">Pamje, fasada, detaje.</div>
-                            <div class="d-flex gap-2 flex-wrap">
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_pamje">Ngarko</button>
-                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_pamje">Ngarko</button>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-dwg_pamje"></ul>
                         </div>
@@ -579,9 +526,7 @@
                         <div class="accordion-body">
                           <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                             <div class="muted small">DWG finale (mund të ketë më shumë se 1 version).</div>
-                            <div class="d-flex gap-2 flex-wrap">
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_final">Ngarko</button>
-                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dwg_final">Ngarko</button>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-dwg_final"></ul>
                         </div>
@@ -598,9 +543,7 @@
                         <div class="accordion-body">
                           <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                             <div class="muted small">Dokumente/dorëzime ndaj klientit (me status, datë dhe koment).</div>
-                            <div class="d-flex gap-2 flex-wrap">
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dorezime">Ngarko</button>
-                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="dorezime">Ngarko</button>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-dorezime"></ul>
                         </div>
@@ -617,9 +560,7 @@
                         <div class="accordion-body">
                           <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                             <div class="muted small">Çdo material tjetër i projektit.</div>
-                            <div class="d-flex gap-2 flex-wrap">
-                              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="skica">Ngarko</button>
-                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#uploadModal" data-section="skica">Ngarko</button>
                           </div>
                           <ul class="list-group file-list mt-2" id="list-skica"></ul>
                         </div>
@@ -644,7 +585,7 @@
           <div class="modal-content" style="background: rgba(6,18,27,.92); border:1px solid rgba(255,255,255,.12); border-radius:18px;">
             <div class="modal-header" style="border-color: rgba(255,255,255,.12);">
               <h5 class="modal-title">Punë/Projekt i ri</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Mbyll"></button>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Mbyll"></button>
             </div>
 
             <div class="modal-body">
@@ -679,7 +620,7 @@
           <div class="modal-content" style="background: rgba(6,18,27,.92); border:1px solid rgba(255,255,255,.12); border-radius:18px;">
             <div class="modal-header" style="border-color: rgba(255,255,255,.12);">
               <h5 class="modal-title">Ngarko materiale</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Mbyll"></button>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Mbyll"></button>
             </div>
 
             <div class="modal-body">
@@ -715,7 +656,7 @@
           <div class="modal-content" style="background: rgba(6,18,27,.92); border:1px solid rgba(255,255,255,.12); border-radius:18px;">
             <div class="modal-header" style="border-color: rgba(255,255,255,.12);">
               <h5 class="modal-title">Status i Dorëzimit</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Mbyll"></button>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Mbyll"></button>
             </div>
             <div class="modal-body">
               <form id="deliverable-form">
@@ -742,7 +683,7 @@
 
                 <div class="mb-3">
                   <label class="form-label">Koment</label>
-                  <textarea class="form-control" id="deliverable-comment" rows="3" placeholder="p.sh. U dorëzua versioni final, u shtua stema, etj."></textarea>
+                  <textarea class="form-control" id="deliverable-comment" rows="3" placeholder="p.sh. U dorëzua versioni final..."></textarea>
                 </div>
 
                 <button type="submit" class="btn btn-primary w-100">Ruaj statusin</button>
@@ -754,7 +695,6 @@
 
     </div><!-- container -->
 
-    <!-- SUPPORT FOOTER (siç e doje) -->
     <div id="support-footer">
       Per ndihme kontakto Ing.Yllart Seferi<br/>
       +355 67 556 2779<br/>
