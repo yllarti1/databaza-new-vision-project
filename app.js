@@ -1,11 +1,11 @@
 /**
- * Databaza New Vision Project - FINAL / STABLE
- * - Remember me: ON -> localStorage, OFF -> sessionStorage (s'ruan login pas mbylljes se tab-it)
- * - Anti-freeze + keepalive
- * - Safe refresh (nuk ngec ne "Duke ngarkuar..." nese 1 query deshton)
- * - Download direkt (jo tab)
+ * Databaza New Vision Project - NO AUTO LOGIN (Stable)
+ * - Nuk ruan session => s’ka login automatik
+ * - "Me kujto" ruan vetëm Email + Emër Mbiemër (jo password)
+ * - Full name ruhet vetëm 1 herë në profiles (nëse s’është i vendosur)
+ * - Download direkt
  * - Activity me emra (profiles.full_name)
- * - Full Name ruhet vetem 1 here (nuk ndryshohet me pas)
+ * - Refresh sequential (pa lock errors)
  */
 
 const SUPABASE_URL = "https://isakjtxcjpifuvhzpltq.supabase.co";
@@ -31,7 +31,6 @@ function extOf(name) {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
 }
-
 function fileTypeFromExt(ext) {
   if (["csv", "idx"].includes(ext)) return "points_raw";
   if (["txt"].includes(ext)) return "points_processed";
@@ -41,84 +40,64 @@ function fileTypeFromExt(ext) {
   if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
   return "other";
 }
-
 function rand6() {
   return Math.random().toString(36).slice(2, 8);
 }
 
-/** Remember me */
-const REMEMBER_KEY = "nvp-remember-me";
-function getRememberMe() {
-  const v = localStorage.getItem(REMEMBER_KEY);
-  return v === null ? true : v === "1"; // default ON
+/**
+ * ✅ REMEMBER ONLY FIELDS (NO SESSION, NO PASSWORD)
+ */
+const REMEMBER_FIELDS_KEY = "nvp-remember-fields"; // "1" / "0"
+const REMEMBER_EMAIL_KEY = "nvp-remember-email";
+const REMEMBER_NAME_KEY = "nvp-remember-name";
+
+function getRememberFields() {
+  const v = localStorage.getItem(REMEMBER_FIELDS_KEY);
+  return v === null ? true : v === "1";
 }
-function setRememberMe(v) {
-  localStorage.setItem(REMEMBER_KEY, v ? "1" : "0");
+function setRememberFields(v) {
+  localStorage.setItem(REMEMBER_FIELDS_KEY, v ? "1" : "0");
+}
+function saveRememberedFields() {
+  const remember = rememberMeEl?.checked ?? true;
+  setRememberFields(remember);
+
+  if (!remember) {
+    localStorage.removeItem(REMEMBER_EMAIL_KEY);
+    localStorage.removeItem(REMEMBER_NAME_KEY);
+    return;
+  }
+  localStorage.setItem(REMEMBER_EMAIL_KEY, (authEmailEl?.value || "").trim());
+  localStorage.setItem(REMEMBER_NAME_KEY, (authFullnameEl?.value || "").trim());
+}
+function restoreRememberedFields() {
+  const remember = getRememberFields();
+  if (rememberMeEl) rememberMeEl.checked = remember;
+
+  if (remember) {
+    const em = localStorage.getItem(REMEMBER_EMAIL_KEY) || "";
+    const nm = localStorage.getItem(REMEMBER_NAME_KEY) || "";
+    if (authEmailEl && !authEmailEl.value) authEmailEl.value = em;
+    if (authFullnameEl && !authFullnameEl.value) authFullnameEl.value = nm;
+  }
 }
 
-/** Supabase client (storage varet nga remember-me) */
+/**
+ * ✅ Supabase client: NO session persistence
+ * storage: memory => nuk ruhet session në localStorage
+ * persistSession: false => s’ka login automatik
+ */
 function makeSupabaseClient() {
-  const remember = getRememberMe();
-  const storage = remember ? window.localStorage : window.sessionStorage;
-
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storage,
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storage: undefined, // memory
     },
   });
 }
-
-let sup = makeSupabaseClient();
-sup.auth.startAutoRefresh();
-
-/** ✅ Re-init client kur ndryshon rememberMe */
-async function resetClientPreservingUI() {
-  try {
-    // nxirr session nga client aktual
-    const { data } = await sup.auth.getSession();
-    const session = data?.session || null;
-
-    // krijo client te ri me storage te ri
-    sup = makeSupabaseClient();
-    sup.auth.startAutoRefresh();
-
-    // nese kishte session, vendose session ne client te ri
-    // (nuk e prish asgje nese session eshte null)
-    if (session) {
-      try {
-        await sup.auth.setSession({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        });
-      } catch {}
-    }
-
-    // ribashko listener
-    bindAuthListener();
-  } catch {}
-}
-
-/** Anti-freeze keepalive */
-setInterval(async () => {
-  try {
-    await sup.auth.getSession();
-  } catch {}
-}, 45000);
-
-/** Kur rikthehesh ne tab */
-document.addEventListener("visibilitychange", async () => {
-  if (document.visibilityState === "visible") {
-    try {
-      await sup.auth.getSession();
-    } catch {}
-    try {
-      await hardRefresh();
-    } catch {}
-  }
-});
+const sup = makeSupabaseClient();
 
 // UI refs
 const alertArea = document.getElementById("alert-area");
@@ -142,7 +121,6 @@ const kpiProjects = document.getElementById("kpi-projects");
 const kpiFiles = document.getElementById("kpi-files");
 const kpiActivity = document.getElementById("kpi-activity");
 
-// Panel
 const panelHint = document.getElementById("panel-hint");
 const panelProjectId = document.getElementById("panel-project-id");
 const panelContent = document.getElementById("panel-content");
@@ -154,7 +132,6 @@ const refreshFilesBtn = document.getElementById("refresh-files-btn");
 const refreshActivityBtn = document.getElementById("refresh-activity-btn");
 const activityList = document.getElementById("activity-list");
 
-// Upload modal
 const uploadModalEl = document.getElementById("uploadModal");
 const uploadForm = document.getElementById("upload-form");
 const uploadProjectIdInput = document.getElementById("upload-project-id");
@@ -162,7 +139,6 @@ const uploadSectionInput = document.getElementById("upload-section");
 const uploadSectionLabel = document.getElementById("upload-section-label");
 const uploadFilesInput = document.getElementById("upload-files");
 
-// Deliverable modal
 const deliverableModalEl = document.getElementById("deliverableModal");
 const deliverableForm = document.getElementById("deliverable-form");
 const deliverableFileId = document.getElementById("deliverable-file-id");
@@ -171,7 +147,6 @@ const deliverableStatus = document.getElementById("deliverable-status");
 const deliverableDate = document.getElementById("deliverable-date");
 const deliverableComment = document.getElementById("deliverable-comment");
 
-// Auth inputs
 const rememberMeEl = document.getElementById("remember-me");
 const authFullnameEl = document.getElementById("auth-fullname");
 const authEmailEl = document.getElementById("auth-email");
@@ -186,6 +161,7 @@ let isRefreshing = false;
 let fileIndexById = {};
 
 function showAlert(message, type = "info", timeout = 6000) {
+  if (!alertArea) return;
   const wrapper = document.createElement("div");
   wrapper.innerHTML = `
     <div class="alert alert-${type} alert-dismissible fade show" role="alert">
@@ -247,6 +223,7 @@ function buildCategoryMap() {
   (categories || []).forEach((c) => (categoryMap[String(c.id)] = c.name || `Kategori ${c.id}`));
 }
 
+// profile name (only when logged)
 async function getMyProfileName() {
   const { data: userData } = await sup.auth.getUser();
   const user = userData?.user;
@@ -265,9 +242,7 @@ async function setAppVisible(isLoggedIn, session) {
     appSection.classList.remove("hidden");
 
     let display = null;
-    try {
-      display = await getMyProfileName();
-    } catch {}
+    try { display = await getMyProfileName(); } catch {}
     userEmailTop.textContent = display || session?.user?.email || "—";
   } else {
     authSection.classList.remove("hidden");
@@ -295,6 +270,7 @@ async function logActivity(projectId, action, target = null) {
   }
 }
 
+// Download direct
 async function shkarkoNgaStorage(filePath) {
   const fileName = (filePath || "").split("/").pop() || "skedar";
   const { data, error } = await sup.storage.from(BUCKET).download(filePath);
@@ -310,19 +286,11 @@ async function shkarkoNgaStorage(filePath) {
   URL.revokeObjectURL(blobUrl);
 }
 
-/** ✅ apply remember me:
- * - ruaj checkbox ne localStorage
- * - ri-krijo supabase client me storage sipas opsionit
- */
-async function applyRememberPolicy() {
-  const remember = rememberMeEl?.checked ?? true;
-  setRememberMe(remember);
-  await resetClientPreservingUI();
-}
-
-// SIGN UP (name locked)
+// Auth
 async function handleSignUp(e) {
   e.preventDefault();
+
+  saveRememberedFields();
 
   const email = (authEmailEl?.value || "").trim();
   const password = authPassEl?.value || "";
@@ -332,8 +300,6 @@ async function handleSignUp(e) {
   if (!fullName) return showAlert("Plotëso Emër Mbiemër (për regjistrim).", "warning");
 
   try {
-    await applyRememberPolicy();
-
     const { data, error } = await sup.auth.signUp({ email, password });
     if (error) throw error;
 
@@ -341,15 +307,13 @@ async function handleSignUp(e) {
     if (userId) {
       const { data: prof } = await sup.from("profiles").select("full_name").eq("id", userId).maybeSingle();
       const existing = (prof?.full_name || "").trim();
-
       if (!existing) {
         const { error: pErr } = await sup.from("profiles").upsert({ id: userId, full_name: fullName });
         if (pErr) console.warn("profiles upsert:", pErr);
       }
     }
 
-    showAlert("Regjistrimi u krye. Tani mund të hysh me email/fjalëkalim.", "success", 7000);
-    if (authFullnameEl) authFullnameEl.value = "";
+    showAlert("Regjistrimi u krye. Tani hyr me email/fjalëkalim.", "success", 7000);
   } catch (err) {
     showAlert(`Gabim në regjistrim: ${err.message}`, "danger", 9000);
   }
@@ -357,18 +321,22 @@ async function handleSignUp(e) {
 
 async function handleLogin(e) {
   e.preventDefault();
+
+  saveRememberedFields();
+
   const email = (authEmailEl?.value || "").trim();
   const password = authPassEl?.value || "";
 
   if (!email || !password) return showAlert("Plotëso email dhe fjalëkalimin.", "warning");
 
   try {
-    await applyRememberPolicy();
-
     const { error } = await sup.auth.signInWithPassword({ email, password });
     if (error) throw error;
 
     showAlert("U futët me sukses.", "success", 2500);
+
+    // pas login: ngarko gjithçka
+    await hardRefresh();
   } catch (err) {
     showAlert(`Gabim në hyrje: ${err.message}`, "danger", 9000);
   }
@@ -380,12 +348,13 @@ async function handleLogout(e) {
     const { error } = await sup.auth.signOut();
     if (error) throw error;
     showAlert("Dole nga sistemi.", "info", 2500);
+    await setAppVisible(false, null);
   } catch (err) {
     showAlert(`Gabim në dalje: ${err.message}`, "danger", 9000);
   }
 }
 
-// DATA
+// Data
 async function loadCategories() {
   try {
     const { data, error } = await sup.from("project_categories").select("id,name").order("id", { ascending: true });
@@ -394,7 +363,7 @@ async function loadCategories() {
     categories = data || [];
     buildCategoryMap();
 
-    // modal select
+    // project modal select
     projectCategorySelect.innerHTML = "";
     if (!categories.length) {
       projectCategorySelect.innerHTML = `<option value="">Nuk ka kategori</option>`;
@@ -419,16 +388,9 @@ async function loadCategories() {
     filterCategory.value = current;
   } catch (e) {
     console.error("loadCategories failed:", e);
-
     projectCategorySelect.innerHTML = `<option value="">(Gabim kategori)</option>`;
     filterCategory.innerHTML = `<option value="">(Gabim kategori)</option>`;
-
-    showAlert(
-      `Kategoritë nuk u ngarkuan (RLS/permissions te <b>project_categories</b>).<br/>Detaj: ${e.message}`,
-      "warning",
-      12000
-    );
-
+    showAlert(`Kategoritë nuk u ngarkuan.<br/>Detaj: ${e?.message || e}`, "warning", 12000);
     categories = [];
     buildCategoryMap();
   }
@@ -460,6 +422,7 @@ async function loadKPIs() {
   if (typeof actCount === "number") kpiActivity.textContent = String(actCount);
 }
 
+// Projects table
 function renderProjectsTable() {
   const q = (searchInput.value || "").toLowerCase().trim();
   const cat = filterCategory.value || "";
@@ -512,6 +475,7 @@ function renderProjectsTable() {
   });
 }
 
+// Create project
 async function handleCreateProject(e) {
   e.preventDefault();
   const name = document.getElementById("project-name").value.trim();
@@ -549,6 +513,7 @@ async function handleCreateProject(e) {
   }
 }
 
+// Workspace
 async function setPanel(project) {
   selectedProject = project;
   panelHint.textContent = "Workspace i projektit është aktiv.";
@@ -579,6 +544,7 @@ function statusChip(status, deliveredAt) {
   return `<span class="chip warn">Në pritje</span>`;
 }
 
+// Files list
 async function loadAllFilesForProject(projectId) {
   fileIndexById = {};
 
@@ -589,9 +555,7 @@ async function loadAllFilesForProject(projectId) {
 
   const { data, error } = await sup
     .from("skicat")
-    .select(
-      "id,project_id,file_path,original_name,file_type,section,uploaded_at,uploaded_by,deliverable_status,delivered_at,deliverable_comment"
-    )
+    .select("id,project_id,file_path,original_name,file_type,section,uploaded_at,uploaded_by,deliverable_status,delivered_at,deliverable_comment")
     .eq("project_id", projectId)
     .order("uploaded_at", { ascending: false });
 
@@ -654,11 +618,8 @@ function renderFileRow(section, f) {
   btnDl.className = "btn btn-sm btn-outline-success";
   btnDl.textContent = "Shkarko";
   btnDl.addEventListener("click", async () => {
-    try {
-      await shkarkoNgaStorage(f.file_path);
-    } catch (e) {
-      showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000);
-    }
+    try { await shkarkoNgaStorage(f.file_path); }
+    catch (e) { showAlert(`Gabim në shkarkim: ${e.message}`, "danger", 8000); }
   });
   right.appendChild(btnDl);
 
@@ -675,6 +636,7 @@ function renderFileRow(section, f) {
   return li;
 }
 
+// Activity
 async function loadProjectActivity(projectId) {
   activityList.innerHTML = `<li class="list-group-item text-muted">Duke ngarkuar...</li>`;
 
@@ -777,7 +739,6 @@ async function uploadOne(projectId, section, file) {
 
   const { error: insErr } = await sup.from("skicat").insert(baseRow);
   if (insErr) throw insErr;
-
   return { path, ftype };
 }
 
@@ -793,18 +754,11 @@ async function handleUpload(e) {
 
   const canAutoClean = section === "raw_points";
   let processorOk = false;
-
-  if (canAutoClean) {
-    processorOk = await tryProcessorHealth();
-    if (!processorOk) {
-      showAlert("Serveri i pastrimit nuk u gjet. RAW do të ngarkohet normalisht (pa pastrim automatik).", "warning", 9000);
-    }
-  }
+  if (canAutoClean) processorOk = await tryProcessorHealth();
 
   showAlert(`Po ngarkohen ${files.length} skedar(ë)...`, "info", 2500);
 
-  let ok = 0,
-    fail = 0;
+  let ok = 0, fail = 0;
 
   for (const f of files) {
     try {
@@ -840,7 +794,6 @@ async function handleUpload(e) {
   await loadKPIs();
   if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
 }
-
 uploadForm.addEventListener("submit", handleUpload);
 
 // Deliverable modal
@@ -900,60 +853,43 @@ deliverableForm.addEventListener("submit", async (e) => {
   }
 });
 
-// SAFE refresh
+// Sequential refresh
 async function hardRefresh() {
   if (isRefreshing) return;
   isRefreshing = true;
-
   try {
-    const results = await Promise.allSettled([loadCategories(), loadProjects(), loadKPIs()]);
-
-    const errs = results
-      .filter((r) => r.status === "rejected")
-      .map((r) => r.reason?.message || String(r.reason));
-
-    if (errs.length) {
-      console.error("Refresh errors:", errs);
-      showAlert("Disa të dhëna nuk u ngarkuan. Provo Dil/Hyr ose kontrollo RLS.", "warning", 9000);
-    }
+    await loadCategories();
+    await loadProjects();
+    await loadKPIs();
 
     if (selectedProject?.id) {
-      await Promise.allSettled([loadAllFilesForProject(selectedProject.id), loadProjectActivity(selectedProject.id)]);
+      await loadAllFilesForProject(selectedProject.id);
+      await loadProjectActivity(selectedProject.id);
     }
 
-    try {
-      const { data } = await sup.auth.getSession();
-      if (data?.session) await setAppVisible(true, data.session);
-    } catch {}
+    const { data } = await sup.auth.getSession();
+    if (data?.session) await setAppVisible(true, data.session);
+  } catch (e) {
+    console.error("hardRefresh error:", e);
+    showAlert(`Gabim gjatë rifreskimit: ${e?.message || e}`, "warning", 9000);
   } finally {
     isRefreshing = false;
   }
 }
 
-// INIT
+// Init: gjithmonë fillo te login (NO AUTO LOGIN)
 async function init() {
-  if (rememberMeEl) rememberMeEl.checked = getRememberMe();
+  restoreRememberedFields();
 
-  const { data } = await sup.auth.getSession();
-  const session = data?.session;
+  // nëse ka ndonjë session të mbetur nga më parë, dil
+  try { await sup.auth.signOut(); } catch {}
 
+  await setAppVisible(false, null);
+}
+
+sup.auth.onAuthStateChange(async (_event, session) => {
   await setAppVisible(!!session, session);
-  if (session) await hardRefresh();
-}
-
-// Auth listener (e ribashkojme kur reset-ojme client)
-let authListenerAttached = false;
-function bindAuthListener() {
-  if (authListenerAttached) return;
-  authListenerAttached = true;
-
-  sup.auth.onAuthStateChange(async (_event, session) => {
-    await setAppVisible(!!session, session);
-    if (session) await hardRefresh();
-    else clearPanel();
-  });
-}
-bindAuthListener();
+});
 
 // Events
 signupBtn.addEventListener("click", handleSignUp);
@@ -973,10 +909,9 @@ refreshActivityBtn.addEventListener("click", async () => {
   if (selectedProject?.id) await loadProjectActivity(selectedProject.id);
 });
 
-// kur ndryshon checkbox -> rikonfiguro storage
-rememberMeEl?.addEventListener("change", async () => {
-  await applyRememberPolicy();
-  showAlert(`"Me kujto" u vendos: ${getRememberMe() ? "ON" : "OFF"}`, "info", 2500);
-});
+// Remember fields live
+rememberMeEl?.addEventListener("change", saveRememberedFields);
+authEmailEl?.addEventListener("input", () => { if (rememberMeEl?.checked) saveRememberedFields(); });
+authFullnameEl?.addEventListener("input", () => { if (rememberMeEl?.checked) saveRememberedFields(); });
 
 init();
